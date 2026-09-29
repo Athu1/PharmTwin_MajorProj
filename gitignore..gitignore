@@ -1,0 +1,84 @@
+# ==========================================
+# 1. Secrets & Credentials (CRITICAL)
+# ==========================================
+.env
+.env.local
+*.pem
+*.key
+
+# ==========================================
+# 2. Large Data & Model Artifacts
+# (Prevents hitting GitHub's 100 MB file limit)
+# ==========================================
+# Raw sponsor POS data (NDA / Privacy)
+data/raw/sponsor/
+data/raw/*.csv
+data/raw/*.xlsx
+
+# Processed synthetic outputs & heavy parquets (can be regenerated via scripts)
+data/processed/*.csv
+data/processed/*.parquet
+data/processed/*.json
+data/processed/models_step3/
+
+# Frozen originals backup (contains ~254k SKU files > 50-100MB)
+data/originals/*.csv
+data/originals/*.parquet
+data/originals/*.json
+
+# Keep folder structure intact in git
+!data/processed/.gitkeep
+!data/originals/README.md
+
+# ==========================================
+# 3. Python & Environments
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# 4. Editors, IDEs & OS Files
+# ==========================
+.vscode/
+.idea/
+.cursor/
+*.sublime-project
+*.sublime-workspace
+
+# Windows / Mac junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
