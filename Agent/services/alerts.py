@@ -50,8 +50,13 @@ def compute_live_alerts(
                         "expiry_date": str(row["expiry_date"]),
                         "days_to_expiry": days,
                         "message": (
-                            f"Near expiry in {days}d — {row['name']} "
-                            f"batch {row['batch_no']} ({row['qty_on_hand']} units)"
+                            (
+                                f"Expired {-days} days ago"
+                                if days < 0
+                                else f"Expires in {days} days"
+                            )
+                            + f" — {row['name']} batch {row['batch_no']} "
+                            f"({float(row['qty_on_hand']):.0f} units)"
                         ),
                     }
                 )
