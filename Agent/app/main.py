@@ -39,15 +39,38 @@ from services.simulations import (
 from services.substitutes import list_query_medicines, recommend_for_sku
 from services.twin import build_live_summary, refresh_twin_snapshot
 
+from app.labels import (
+    ACTION,
+    AWARE,
+    MODEL,
+    SEVERITY,
+    SOURCE,
+    SUB_SOURCE,
+    alert_type_label,
+    code_for,
+    plain,
+    plain_text,
+    recommendation_story,
+)
+
+PAGE_OVERVIEW = "Shop summary (Overview / Twin)"
+PAGE_INVENTORY = "Stock (Inventory)"
+PAGE_FORECASTS = "Sales predictions (Forecasts)"
+PAGE_RECS = "What to order (Recommendations)"
+PAGE_ALERTS = "Warnings (Alerts)"
+PAGE_SIMS = "What-if practice (Simulations)"
+PAGE_SUBS = "Alternative medicines (Substitutes)"
+PAGE_SETTINGS = "Settings"
+
 PAGES = [
-    "Overview / Twin",
-    "Inventory",
-    "Forecasts",
-    "Recommendations",
-    "Alerts",
-    "Simulations",
-    "Substitutes (review)",
-    "Settings",
+    PAGE_OVERVIEW,
+    PAGE_INVENTORY,
+    PAGE_FORECASTS,
+    PAGE_RECS,
+    PAGE_ALERTS,
+    PAGE_SIMS,
+    PAGE_SUBS,
+    PAGE_SETTINGS,
 ]
 
 
@@ -63,7 +86,7 @@ def overview_text() -> str:
                 "Fix now:\n"
                 "1) Click OK on the password dialog (or use Settings)\n"
                 "2) Enter your MySQL root password\n"
-                "3) Then run seed (Settings → Seed database)\n"
+                "3) Then click 'Load demo data (seed database)'\n"
                 "4) Restart / refresh Overview\n"
             )
         if ok_server:
@@ -81,7 +104,7 @@ def overview_text() -> str:
             "Setup:\n"
             "1) Ensure MySQL 8 service is running\n"
             "2) Set MySQL password\n"
-            "3) Seed database\n"
+            "3) Click 'Load demo data (seed database)'\n"
             "4) Restart PharmTwinAI\n"
         )
     try:
@@ -89,25 +112,27 @@ def overview_text() -> str:
         meta = get_meta()
         if summary.get("is_stale"):
             twin_status = (
-                "STALE — inventory/sales changed since last sync. "
-                "Click 'Refresh twin snapshot'."
+                "Out of date (STALE) — stock or sales changed since the last update. "
+                "Click 'Update shop snapshot'."
             )
         else:
-            twin_status = "IN SYNC"
+            twin_status = "Up to date (IN SYNC)"
         return (
-            "Pharmacy Digital Twin — live summary\n\n"
-            f"Catalog knowledge base: {summary.get('n_catalog', summary.get('n_medicines', 0)):,} medicines\n"
-            f"Stocked assortment (store SKUs): {summary.get('n_stocked', 0):,}\n"
-            f"Open batches: {summary.get('n_batches', 0):,}\n"
-            f"On-hand units: {summary.get('on_hand_units', 0):,.0f}\n"
-            f"Latest twin sync: {summary.get('synced_at', 'n/a')}\n"
-            f"Twin status: {twin_status}\n"
-            f"Data mode: {meta.get('data_mode', 'unknown')}\n"
-            f"Last seed: {meta.get('last_seed_at', 'n/a')}\n\n"
+            "Shop summary — live (Pharmacy Digital Twin)\n\n"
+            f"Medicines in the India reference list (catalog knowledge base): "
+            f"{summary.get('n_catalog', summary.get('n_medicines', 0)):,}\n"
+            f"Medicines this shop stocks (store SKUs): {summary.get('n_stocked', 0):,}\n"
+            f"Batches on the shelf (open batches): {summary.get('n_batches', 0):,}\n"
+            f"Total units in stock (on-hand units): {summary.get('on_hand_units', 0):,.0f}\n"
+            f"Shop snapshot last updated (twin sync, UTC): {summary.get('synced_at', 'n/a')}\n"
+            f"Snapshot status (twin status): {twin_status}\n"
+            f"Type of data (data mode): {plain(SOURCE, meta.get('data_mode', 'unknown'))}\n"
+            f"Data last loaded (last seed): {meta.get('last_seed_at', 'n/a')}\n\n"
             f"Note: {summary.get('label', '')}\n\n"
-            "Inventory edits use a pharmacy working copy only — "
-            "the 250k+ reference catalog is never modified.\n"
-            "Live pages: Inventory · Forecasts · Recommendations · Alerts · Simulations · Substitutes"
+            "Stock changes only affect this shop's own list (pharmacy working copy) — "
+            "the 250k+ India reference list is never changed.\n"
+            "Pages: Stock · Sales predictions · What to order · Warnings · "
+            "What-if practice · Alternative medicines"
         )
     except Exception as exc:  # noqa: BLE001
         return f"Connected, but twin summary failed:\n{exc}"
@@ -115,11 +140,13 @@ def overview_text() -> str:
 
 STUB_BODIES = {
     "Settings": (
-        "Use the buttons below the nav:\n"
-        "• Set MySQL password (saved to .env)\n"
-        "• Seed DEV synthetic database (full catalog + assortment stock)\n"
-        "• Load analytics (forecasts + recommendations) without full reseed\n"
-        "• Refresh Overview\n\n"
+        "Use the buttons below the page list:\n"
+        "• Set MySQL password — database login, saved to .env\n"
+        "• Load demo data — full reference list + demo shop stock (seed DEV synthetic database)\n"
+        "• Load predictions — sales predictions + order suggestions, without reloading "
+        "everything (analytics: forecasts + recommendations)\n"
+        "• Update shop snapshot — mark the summary up to date (twin snapshot)\n"
+        "• Back to summary (refresh Overview)\n\n"
         f"Env file: {ROOT / '.env'}\n"
         "CLI: py -3 scripts/load_analytics.py\n"
         "Originals freeze: py -3 scripts/snapshot_originals.py\n"
@@ -137,7 +164,7 @@ class PharmTwinApp(tk.Tk):
 
         banner = tk.Label(
             self,
-            text="DATA MODE: DEV SYNTHETIC — Not Bhagyashree Medical live sales",
+            text="DEMO DATA (DEV SYNTHETIC) — not real Bhagyashree Medical sales",
             bg="#7a3e00",
             fg="#fff8e8",
             font=("Segoe UI", 10, "bold"),
@@ -160,10 +187,10 @@ class PharmTwinApp(tk.Tk):
         tk.Button(left, text="Set MySQL password", command=self._prompt_password).pack(
             fill=tk.X, pady=(8, 4)
         )
-        tk.Button(left, text="Seed database", command=self._run_seed).pack(fill=tk.X, pady=4)
-        tk.Button(left, text="Load analytics", command=self._run_analytics).pack(fill=tk.X, pady=4)
-        tk.Button(left, text="Refresh Overview", command=self._refresh).pack(fill=tk.X, pady=4)
-        tk.Button(left, text="Refresh twin snapshot", command=self._refresh_twin).pack(
+        tk.Button(left, text="Load demo data (seed database)", command=self._run_seed).pack(fill=tk.X, pady=4)
+        tk.Button(left, text="Load predictions (analytics)", command=self._run_analytics).pack(fill=tk.X, pady=4)
+        tk.Button(left, text="Back to summary (refresh)", command=self._refresh).pack(fill=tk.X, pady=4)
+        tk.Button(left, text="Update shop snapshot (twin)", command=self._refresh_twin).pack(
             fill=tk.X, pady=4
         )
 
@@ -211,19 +238,19 @@ class PharmTwinApp(tk.Tk):
     def _show(self, name: str) -> None:
         self.heading.config(text=name)
         self._clear_page()
-        if name == "Overview / Twin":
+        if name == PAGE_OVERVIEW:
             self._page_text(overview_text())
-        elif name == "Inventory":
+        elif name == PAGE_INVENTORY:
             self._page_inventory()
-        elif name == "Forecasts":
+        elif name == PAGE_FORECASTS:
             self._page_forecasts()
-        elif name == "Recommendations":
+        elif name == PAGE_RECS:
             self._page_recommendations()
-        elif name == "Alerts":
+        elif name == PAGE_ALERTS:
             self._page_alerts()
-        elif name == "Simulations":
+        elif name == PAGE_SIMS:
             self._page_simulations()
-        elif name == "Substitutes (review)":
+        elif name == PAGE_SUBS:
             self._page_substitutes()
         else:
             self._page_text(STUB_BODIES.get(name, ""))
@@ -239,8 +266,9 @@ class PharmTwinApp(tk.Tk):
         tip = tk.Label(
             self.page_host,
             text=(
-                "Working inventory only (pharmacy / synthetic). "
-                "250k reference catalog is read-only — Add clones from catalog or creates a pharmacy copy."
+                "This is the shop's own stock list (working inventory). "
+                "The 250k India reference list (reference catalog) cannot be changed — "
+                "'Add medicine' copies from it or creates a new entry."
             ),
             fg="#7a3e00",
             anchor="w",
@@ -251,7 +279,7 @@ class PharmTwinApp(tk.Tk):
 
         top = tk.Frame(self.page_host)
         top.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(top, text="Search stocked:").pack(side=tk.LEFT)
+        tk.Label(top, text="Search stock:").pack(side=tk.LEFT)
         qvar = tk.StringVar()
         entry = tk.Entry(top, textvariable=qvar, width=32)
         entry.pack(side=tk.LEFT, padx=6)
@@ -277,14 +305,14 @@ class PharmTwinApp(tk.Tk):
         )
         tree = ttk.Treeview(med_frame, columns=cols, show="headings", height=12)
         headings = {
-            "sku_code": "SKU",
+            "sku_code": "Code (SKU)",
             "name": "Medicine",
-            "form": "Type",
-            "unit": "Unit",
-            "qty": "On hand",
-            "batches": "Lots",
-            "nearest_expiry": "Nearest expiry",
-            "source": "Source",
+            "form": "Form",
+            "unit": "Counted in",
+            "qty": "In stock",
+            "batches": "Batches (lots)",
+            "nearest_expiry": "Earliest expiry",
+            "source": "Entry type (source)",
             "mrp": "MRP",
         }
         widths = {
@@ -295,7 +323,7 @@ class PharmTwinApp(tk.Tk):
             "qty": 70,
             "batches": 50,
             "nearest_expiry": 100,
-            "source": 100,
+            "source": 150,
             "mrp": 60,
         }
         for c in cols:
@@ -308,7 +336,7 @@ class PharmTwinApp(tk.Tk):
 
         tk.Label(
             batch_frame,
-            text="Lots (FEFO) — qty uses medicine unit (TABLETS / ML / VIALS / …)",
+            text="Batches of the selected medicine — sell the earliest expiry first (FEFO lots)",
             anchor="w",
             font=("Segoe UI", 10, "bold"),
         ).pack(fill=tk.X)
@@ -316,12 +344,12 @@ class PharmTwinApp(tk.Tk):
         btree = ttk.Treeview(batch_frame, columns=bcols, show="headings", height=8)
         bhead = {
             "batch_id": "ID",
-            "batch_no": "Batch",
-            "mfg": "Mfg",
+            "batch_no": "Batch no.",
+            "mfg": "Made on (mfg)",
             "expiry": "Expiry",
-            "days": "Days",
+            "days": "Days left",
             "qty": "Qty",
-            "unit": "Unit",
+            "unit": "Counted in",
             "unit_cost": "Cost",
         }
         for c in bcols:
@@ -343,10 +371,10 @@ class PharmTwinApp(tk.Tk):
                 return
             tip.config(
                 text=(
-                    f"Working inventory editable. Reference catalog locked "
-                    f"(reference={sources.get('reference', 0):,}). "
-                    f"Stocked: pharmacy={sources.get('pharmacy', 0)}, "
-                    f"synthetic={sources.get('dev_synthetic', 0)}."
+                    f"Shop stock list can be edited. India reference list is locked "
+                    f"({sources.get('reference', 0):,} medicines, reference). "
+                    f"In stock list: added in shop={sources.get('pharmacy', 0)} (pharmacy), "
+                    f"demo data={sources.get('dev_synthetic', 0)} (dev_synthetic)."
                 )
             )
             for r in rows:
@@ -362,7 +390,7 @@ class PharmTwinApp(tk.Tk):
                         f"{float(r.get('qty_on_hand') or 0):.0f}",
                         r.get("n_batches"),
                         r.get("nearest_expiry") or "",
-                        r.get("source_system") or "",
+                        plain(SOURCE, r.get("source_system")),
                         r.get("unit_mrp") or "",
                     ),
                 )
@@ -399,14 +427,14 @@ class PharmTwinApp(tk.Tk):
         def do_remove_med() -> None:
             sel = tree.selection()
             if not sel:
-                messagebox.showinfo("Remove", "Select a stocked medicine first.")
+                messagebox.showinfo("Remove", "Select a medicine in the list first.")
                 return
             mid = int(sel[0])
             name = tree.item(sel[0], "values")[1]
             if not messagebox.askyesno(
-                "Remove from inventory",
-                f"Remove working medicine and all its lots?\n\n{name}\n\n"
-                "Reference catalog (250k) will NOT be changed.",
+                "Remove from stock",
+                f"Remove this medicine and all its batches from the shop stock list?\n\n{name}\n\n"
+                "The India reference list (reference catalog) will NOT be changed.",
             ):
                 return
             try:
@@ -423,10 +451,10 @@ class PharmTwinApp(tk.Tk):
         def do_remove_lot() -> None:
             sel = btree.selection()
             if not sel:
-                messagebox.showinfo("Remove lot", "Select a lot/batch row first.")
+                messagebox.showinfo("Remove batch", "Select a batch row first.")
                 return
             bid = int(sel[0])
-            if not messagebox.askyesno("Remove lot", f"Delete lot/batch id {bid}?"):
+            if not messagebox.askyesno("Remove batch", f"Delete batch (lot) ID {bid}?"):
                 return
             try:
                 remove_lot(bid)
@@ -442,7 +470,7 @@ class PharmTwinApp(tk.Tk):
         def do_add_lot() -> None:
             sel = tree.selection()
             if not sel:
-                messagebox.showinfo("Add lot", "Select a medicine first.")
+                messagebox.showinfo("Add batch", "Select a medicine first.")
                 return
             self._dialog_add_lot(int(sel[0]), on_done=lambda: (load_meds(), on_select()))
 
@@ -450,16 +478,16 @@ class PharmTwinApp(tk.Tk):
         tk.Button(top, text="Add medicine…", command=lambda: self._dialog_add_medicine(on_done=load_meds)).pack(
             side=tk.LEFT, padx=4
         )
-        tk.Button(top, text="Add lot…", command=do_add_lot).pack(side=tk.LEFT, padx=4)
+        tk.Button(top, text="Add batch (lot)…", command=do_add_lot).pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="Remove medicine", command=do_remove_med).pack(side=tk.LEFT, padx=4)
-        tk.Button(top, text="Remove lot", command=do_remove_lot).pack(side=tk.LEFT, padx=4)
+        tk.Button(top, text="Remove batch (lot)", command=do_remove_lot).pack(side=tk.LEFT, padx=4)
         entry.bind("<Return>", load_meds)
         tree.bind("<<TreeviewSelect>>", on_select)
         load_meds()
 
     def _dialog_add_medicine(self, on_done=None) -> None:
         win = tk.Toplevel(self)
-        win.title("Add medicine to working inventory")
+        win.title("Add medicine to shop stock")
         win.geometry("640x520")
         win.transient(self)
         win.grab_set()
@@ -467,8 +495,9 @@ class PharmTwinApp(tk.Tk):
         info = tk.Label(
             win,
             text=(
-                "Creates a pharmacy working copy (+ opening lot). "
-                "Optional: search reference catalog and clone (catalog row stays untouched)."
+                "Adds a medicine to the shop stock list with its first batch (opening lot). "
+                "Optional: search the India reference list and pick a medicine to copy its "
+                "details (the reference list itself is not changed)."
             ),
             wraplength=600,
             justify=tk.LEFT,
@@ -476,7 +505,7 @@ class PharmTwinApp(tk.Tk):
         )
         info.pack(fill=tk.X, padx=10, pady=8)
 
-        cat_frame = tk.LabelFrame(win, text="Clone from reference catalog (optional)")
+        cat_frame = tk.LabelFrame(win, text="Copy details from India reference list (clone from catalog) — optional")
         cat_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
         cq = tk.StringVar()
         crow = tk.Frame(cat_frame)
@@ -491,7 +520,7 @@ class PharmTwinApp(tk.Tk):
             ctree.column(c, width=w)
         ctree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        form = tk.LabelFrame(win, text="Working medicine + opening lot")
+        form = tk.LabelFrame(win, text="Medicine + first batch (opening lot)")
         form.pack(fill=tk.X, padx=10, pady=4)
         fields: dict[str, tk.Variable] = {
             "name": tk.StringVar(),
@@ -514,13 +543,13 @@ class PharmTwinApp(tk.Tk):
         form_box = ttk.Combobox(
             form, textvariable=fields["form_type"], values=list(FORM_TYPES), state="readonly", width=20
         )
-        grid_row(1, "Type / form", form_box)
+        grid_row(1, "Form (tablet, syrup…)", form_box)
         unit_box = ttk.Combobox(
             form, textvariable=fields["qty_unit"], values=list(QTY_UNITS), state="readonly", width=20
         )
-        grid_row(2, "Quantity unit", unit_box)
+        grid_row(2, "Counted in (unit)", unit_box)
         grid_row(3, "Quantity", tk.Entry(form, textvariable=fields["quantity"], width=20))
-        grid_row(4, "Mfg date (YYYY-MM-DD)", tk.Entry(form, textvariable=fields["mfg_date"], width=20))
+        grid_row(4, "Made on (YYYY-MM-DD)", tk.Entry(form, textvariable=fields["mfg_date"], width=20))
         grid_row(5, "Expiry (YYYY-MM-DD)", tk.Entry(form, textvariable=fields["expiry_date"], width=20))
         grid_row(6, "Batch no", tk.Entry(form, textvariable=fields["batch_no"], width=20))
         grid_row(7, "Manufacturer", tk.Entry(form, textvariable=fields["manufacturer"], width=40))
@@ -571,7 +600,7 @@ class PharmTwinApp(tk.Tk):
             except Exception:  # noqa: BLE001
                 pass
 
-        tk.Button(crow, text="Search catalog", command=search_cat).pack(side=tk.LEFT, padx=4)
+        tk.Button(crow, text="Search reference list", command=search_cat).pack(side=tk.LEFT, padx=4)
         ctree.bind("<<TreeviewSelect>>", on_cat_select)
 
         def save() -> None:
@@ -594,9 +623,9 @@ class PharmTwinApp(tk.Tk):
                 return
             messagebox.showinfo(
                 "Added",
-                f"Working medicine #{out['medicine_id']} ({out['sku_code']}) created.\n"
-                f"Type={out['form_type']} qty={out['quantity']} {out['qty_unit']}\n"
-                "Reference catalog unchanged.",
+                f"Medicine #{out['medicine_id']} (code {out['sku_code']}) added to shop stock.\n"
+                f"Form: {out['form_type']} · Quantity: {out['quantity']} {out['qty_unit']}\n"
+                "India reference list unchanged.",
                 parent=win,
             )
             win.destroy()
@@ -605,12 +634,12 @@ class PharmTwinApp(tk.Tk):
 
         btn = tk.Frame(win)
         btn.pack(fill=tk.X, padx=10, pady=10)
-        tk.Button(btn, text="Save to working inventory", command=save).pack(side=tk.RIGHT)
+        tk.Button(btn, text="Save to shop stock", command=save).pack(side=tk.RIGHT)
         tk.Button(btn, text="Cancel", command=win.destroy).pack(side=tk.RIGHT, padx=6)
 
     def _dialog_add_lot(self, medicine_id: int, on_done=None) -> None:
         win = tk.Toplevel(self)
-        win.title(f"Add lot — medicine #{medicine_id}")
+        win.title(f"Add batch (lot) — medicine #{medicine_id}")
         win.geometry("420x280")
         win.transient(self)
         win.grab_set()
@@ -623,7 +652,7 @@ class PharmTwinApp(tk.Tk):
         for i, (label, key) in enumerate(
             (
                 ("Quantity", "quantity"),
-                ("Mfg date (YYYY-MM-DD)", "mfg_date"),
+                ("Made on (YYYY-MM-DD)", "mfg_date"),
                 ("Expiry (YYYY-MM-DD)", "expiry_date"),
                 ("Batch no", "batch_no"),
             )
@@ -641,13 +670,13 @@ class PharmTwinApp(tk.Tk):
                     batch_no=vars_["batch_no"].get().strip() or None,
                 )
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror("Add lot failed", str(exc), parent=win)
+                messagebox.showerror("Add batch failed", str(exc), parent=win)
                 return
             win.destroy()
             if on_done:
                 on_done()
 
-        tk.Button(win, text="Save lot", command=save).grid(row=5, column=1, sticky="e", padx=10, pady=12)
+        tk.Button(win, text="Save batch", command=save).grid(row=5, column=1, sticky="e", padx=10, pady=12)
 
     def _page_forecasts(self) -> None:
         top = tk.Frame(self.page_host)
@@ -665,24 +694,24 @@ class PharmTwinApp(tk.Tk):
         cols = ("sku_id", "name", "cohort", "model", "weeks", "avg_yhat", "avg_q95", "from_w", "to_w")
         tree = ttk.Treeview(med_frame, columns=cols, show="headings", height=14)
         heads = {
-            "sku_id": "SKU",
+            "sku_id": "Code (SKU)",
             "name": "Medicine",
-            "cohort": "Cohort",
-            "model": "Model",
-            "weeks": "Weeks",
-            "avg_yhat": "Avg yhat",
-            "avg_q95": "Avg q95",
+            "cohort": "Medicine group (cohort)",
+            "model": "Prediction method (model)",
+            "weeks": "Weeks ahead",
+            "avg_yhat": "Expected sales / week (avg yhat)",
+            "avg_q95": "Busy-week sales / week (avg q95)",
             "from_w": "From",
             "to_w": "To",
         }
         widths = {
             "sku_id": 70,
             "name": 260,
-            "cohort": 100,
-            "model": 90,
-            "weeks": 60,
-            "avg_yhat": 80,
-            "avg_q95": 80,
+            "cohort": 150,
+            "model": 170,
+            "weeks": 80,
+            "avg_yhat": 190,
+            "avg_q95": 200,
             "from_w": 100,
             "to_w": 100,
         }
@@ -696,7 +725,7 @@ class PharmTwinApp(tk.Tk):
 
         tk.Label(
             week_frame,
-            text="Weekly horizons (yhat = q50 point forecast; upper = q95)",
+            text="Week-by-week prediction for the selected medicine — expected sales, and a safe upper figure for busy weeks (yhat = q50 middle estimate; upper = q95)",
             anchor="w",
             font=("Segoe UI", 10, "bold"),
         ).pack(fill=tk.X)
@@ -705,10 +734,10 @@ class PharmTwinApp(tk.Tk):
         for c, h, w in (
             ("start", "Week start", 110),
             ("end", "Week end", 110),
-            ("yhat", "yhat", 80),
-            ("q50", "q50", 80),
-            ("q95", "q95", 80),
-            ("actual", "actual", 80),
+            ("yhat", "Expected sales (yhat)", 160),
+            ("q50", "Middle estimate (q50)", 160),
+            ("q95", "Busy-week upper (q95)", 170),
+            ("actual", "Actually sold (actual)", 160),
         ):
             wtree.heading(c, text=h)
             wtree.column(c, width=w, anchor=tk.W)
@@ -726,19 +755,19 @@ class PharmTwinApp(tk.Tk):
             except Exception as exc:  # noqa: BLE001
                 messagebox.showerror("Forecasts", str(exc))
                 summary_lbl.config(
-                    text="No forecasts loaded. Click Load analytics (or run scripts/load_analytics.py)."
+                    text="No sales predictions loaded. Click 'Load predictions (analytics)' (or run scripts/load_analytics.py)."
                 )
                 return
             if counts["n_rows"] == 0:
                 summary_lbl.config(
-                    text="No forecast rows in MySQL. Click Load analytics to import Step 3 outputs."
+                    text="No sales predictions in the database. Click 'Load predictions (analytics)' (imports Step 3 forecasts)."
                 )
                 return
             summary_lbl.config(
                 text=(
-                    f"Step 3 LightGBM env forecasts: {counts['n_rows']:,} rows · "
-                    f"{counts['n_medicines']:,} SKUs · models={counts['models']} · "
-                    "metrics: WMAPE/MASE only (no MAPE)"
+                    f"Weekly sales predictions for {counts['n_medicines']:,} medicines "
+                    f"({counts['n_rows']:,} rows, Step 3 LightGBM with season/weather). "
+                    "Accuracy is checked with WMAPE/MASE (not MAPE)."
                 )
             )
             for r in rows:
@@ -750,7 +779,7 @@ class PharmTwinApp(tk.Tk):
                         r.get("sku_id"),
                         r.get("name"),
                         r.get("demand_cohort") or "",
-                        r.get("model_name"),
+                        plain(MODEL, r.get("model_name")),
                         r.get("n_weeks"),
                         r.get("avg_yhat"),
                         r.get("avg_q95"),
@@ -793,13 +822,13 @@ class PharmTwinApp(tk.Tk):
     def _page_recommendations(self) -> None:
         top = tk.Frame(self.page_host)
         top.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(top, text="Filter:").pack(side=tk.LEFT)
-        action_var = tk.StringVar(value="REORDER")
+        tk.Label(top, text="Show:").pack(side=tk.LEFT)
+        action_var = tk.StringVar(value=ACTION["REORDER"])
         action_box = ttk.Combobox(
             top,
             textvariable=action_var,
-            values=["REORDER", "HOLD", "REVIEW_OVERSTOCK", "ALL"],
-            width=18,
+            values=[ACTION[a] for a in ("REORDER", "HOLD", "REVIEW_OVERSTOCK", "ALL")],
+            width=32,
             state="readonly",
         )
         action_box.pack(side=tk.LEFT, padx=6)
@@ -820,26 +849,26 @@ class PharmTwinApp(tk.Tk):
         cols = ("action", "sku_id", "name", "on_hand", "rop", "ss", "qty", "forecast", "cohort")
         tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=14)
         heads = {
-            "action": "Action",
-            "sku_id": "SKU",
+            "action": "What to do (action)",
+            "sku_id": "Code (SKU)",
             "name": "Medicine",
-            "on_hand": "On hand",
-            "rop": "ROP",
-            "ss": "SS",
-            "qty": "Suggest qty",
-            "forecast": "Cover demand",
-            "cohort": "Cohort",
+            "on_hand": "In stock",
+            "rop": "Order when stock falls to (ROP)",
+            "ss": "Safety stock (SS)",
+            "qty": "Suggested order qty",
+            "forecast": "Expected sales till delivery (cover demand)",
+            "cohort": "Medicine group (cohort)",
         }
         widths = {
-            "action": 120,
-            "sku_id": 70,
+            "action": 200,
+            "sku_id": 80,
             "name": 240,
-            "on_hand": 80,
-            "rop": 70,
-            "ss": 70,
-            "qty": 90,
-            "forecast": 100,
-            "cohort": 100,
+            "on_hand": 70,
+            "rop": 200,
+            "ss": 120,
+            "qty": 130,
+            "forecast": 260,
+            "cohort": 150,
         }
         for c in cols:
             tree.heading(c, text=heads[c])
@@ -851,7 +880,7 @@ class PharmTwinApp(tk.Tk):
 
         tk.Label(
             detail_frame,
-            text="Explanation (SS = Z × σ × √(L+R))",
+            text="Why this suggestion — in plain words (SS = Z × σ × √(L+R))",
             anchor="w",
             font=("Segoe UI", 10, "bold"),
         ).pack(fill=tk.X)
@@ -867,26 +896,26 @@ class PharmTwinApp(tk.Tk):
             try:
                 counts = recommendation_counts()
                 rows = list_recommendations(
-                    action=action_var.get(), search=qvar.get(), limit=500
+                    action=code_for(ACTION, action_var.get()), search=qvar.get(), limit=500
                 )
             except Exception as exc:  # noqa: BLE001
                 messagebox.showerror("Recommendations", str(exc))
-                counts_lbl.config(text="Load analytics first")
+                counts_lbl.config(text="Click 'Load predictions (analytics)' first")
                 return
             if counts.get("ALL", 0) == 0:
-                counts_lbl.config(text="0 rows — Load analytics")
+                counts_lbl.config(text="None yet — click 'Load predictions (analytics)'")
                 detail.insert(
                     tk.END,
-                    "No recommendations in MySQL.\n"
-                    "Click Load analytics (imports Step 4 safety-stock params).",
+                    "No order suggestions in the database yet (recommendations).\n"
+                    "Click 'Load predictions (analytics)' (imports Step 4 safety-stock settings).",
                 )
                 return
             counts_lbl.config(
                 text=(
-                    f"REORDER={counts.get('REORDER', 0)} · "
-                    f"HOLD={counts.get('HOLD', 0)} · "
-                    f"OVERSTOCK={counts.get('REVIEW_OVERSTOCK', 0)} · "
-                    f"ALL={counts.get('ALL', 0)}"
+                    f"Order now={counts.get('REORDER', 0)} · "
+                    f"Enough={counts.get('HOLD', 0)} · "
+                    f"Too much={counts.get('REVIEW_OVERSTOCK', 0)} · "
+                    f"Total={counts.get('ALL', 0)}"
                 )
             )
             for r in rows:
@@ -898,7 +927,7 @@ class PharmTwinApp(tk.Tk):
                     tk.END,
                     iid=iid,
                     values=(
-                        r.get("action_type"),
+                        plain(ACTION, r.get("action_type")),
                         r.get("sku_id"),
                         r.get("name"),
                         f"{float(r.get('current_stock') or 0):.1f}",
@@ -916,7 +945,7 @@ class PharmTwinApp(tk.Tk):
             if not sel:
                 return
             r = row_by_id.get(sel[0], {})
-            detail.insert(tk.END, r.get("explanation_text") or "")
+            detail.insert(tk.END, recommendation_story(r))
 
         tk.Button(top, text="Refresh", command=load).pack(side=tk.LEFT, padx=4)
         entry.bind("<Return>", load)
@@ -929,24 +958,24 @@ class PharmTwinApp(tk.Tk):
         top.pack(fill=tk.X, pady=(0, 6))
         tk.Label(
             top,
-            text="Live alerts from MySQL stock (near-expiry ≤90d, low stock <20 units)",
+            text="Live warnings from shop stock: expired or expiring within 90 days, or fewer than 20 units left",
         ).pack(side=tk.LEFT)
 
         cols = ("severity", "type", "sku_id", "name", "qty", "expiry", "days", "message")
         tree = ttk.Treeview(self.page_host, columns=cols, show="headings")
         heads = {
-            "severity": "Severity",
-            "type": "Type",
-            "sku_id": "SKU",
+            "severity": "How urgent (severity)",
+            "type": "Problem (type)",
+            "sku_id": "Code (SKU)",
             "name": "Medicine",
-            "qty": "Qty",
+            "qty": "In stock",
             "expiry": "Expiry",
-            "days": "Days",
-            "message": "Message",
+            "days": "Days left",
+            "message": "Details",
         }
         widths = {
-            "severity": 80,
-            "type": 110,
+            "severity": 140,
+            "type": 190,
             "sku_id": 70,
             "name": 220,
             "qty": 60,
@@ -974,8 +1003,8 @@ class PharmTwinApp(tk.Tk):
                     "",
                     tk.END,
                     values=(
-                        r.get("severity"),
-                        r.get("alert_type"),
+                        plain(SEVERITY, r.get("severity")),
+                        alert_type_label(r.get("alert_type"), r.get("days_to_expiry")),
                         r.get("sku_id"),
                         r.get("name"),
                         f"{float(r.get('qty_on_hand') or 0):.0f}",
@@ -985,15 +1014,15 @@ class PharmTwinApp(tk.Tk):
                     ),
                 )
 
-        tk.Button(top, text="Refresh alerts", command=load).pack(side=tk.RIGHT)
+        tk.Button(top, text="Refresh warnings", command=load).pack(side=tk.RIGHT)
         load()
 
     def _page_simulations(self) -> None:
         note = tk.Label(
             self.page_host,
             text=(
-                "Twin-isolated what-if — runs against a snapshot / offline clone. "
-                "Never writes to medicine_batches or live stock."
+                "Practice 'what if' scenarios on a copy of the shop data (twin-isolated what-if). "
+                "Your real stock is never changed (no writes to medicine_batches)."
             ),
             fg="#7a3e00",
             anchor="w",
@@ -1004,13 +1033,13 @@ class PharmTwinApp(tk.Tk):
 
         controls = tk.Frame(self.page_host)
         controls.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(controls, text="Demand ×").pack(side=tk.LEFT)
+        tk.Label(controls, text="Sales change (demand ×, 1.20 = +20%)").pack(side=tk.LEFT)
         demand_var = tk.StringVar(value="1.20")
         tk.Entry(controls, textvariable=demand_var, width=6).pack(side=tk.LEFT, padx=4)
-        tk.Label(controls, text="Lead time (w)").pack(side=tk.LEFT, padx=(8, 0))
+        tk.Label(controls, text="Supplier delay, weeks (lead time)").pack(side=tk.LEFT, padx=(8, 0))
         lt_var = tk.StringVar(value="1")
         tk.Entry(controls, textvariable=lt_var, width=4).pack(side=tk.LEFT, padx=4)
-        tk.Label(controls, text="Max SKUs").pack(side=tk.LEFT, padx=(8, 0))
+        tk.Label(controls, text="Medicines to test (max SKUs)").pack(side=tk.LEFT, padx=(8, 0))
         sku_var = tk.StringVar(value="100")
         tk.Entry(controls, textvariable=sku_var, width=6).pack(side=tk.LEFT, padx=4)
 
@@ -1021,16 +1050,16 @@ class PharmTwinApp(tk.Tk):
         paned.add(runs_frame, height=240)
         paned.add(res_frame)
 
-        tk.Label(runs_frame, text="Simulation runs", font=("Segoe UI", 10, "bold")).pack(
+        tk.Label(runs_frame, text="Past practice runs (simulation runs)", font=("Segoe UI", 10, "bold")).pack(
             anchor="w"
         )
         rcols = ("run_id", "title", "created", "n_results")
         rtree = ttk.Treeview(runs_frame, columns=rcols, show="headings", height=8)
         for c, h, w in (
             ("run_id", "Run", 60),
-            ("title", "Title", 520),
+            ("title", "Scenario (title)", 520),
             ("created", "Created", 160),
-            ("n_results", "Results", 70),
+            ("n_results", "Saved results", 110),
         ):
             rtree.heading(c, text=h)
             rtree.column(c, width=w, anchor=tk.W)
@@ -1052,17 +1081,17 @@ class PharmTwinApp(tk.Tk):
         )
         mtree = ttk.Treeview(res_frame, columns=mcols, show="headings", height=10)
         mheads = {
-            "policy": "Policy",
-            "fill_rate": "Fill rate",
-            "unmet": "Unmet qty",
-            "waste_cost": "Waste cost",
-            "markdown": "Markdown",
-            "margin": "Gross margin",
-            "waste_vs_fifo": "Waste ↓ vs FIFO %",
+            "policy": "Stock method (policy)",
+            "fill_rate": "Customers served (fill rate)",
+            "unmet": "Units we could not sell (unmet qty)",
+            "waste_cost": "Loss from expired stock (waste cost)",
+            "markdown": "Discount given near expiry (markdown)",
+            "margin": "Profit (gross margin)",
+            "waste_vs_fifo": "Less waste than oldest-first, % (vs FIFO)",
         }
         for c in mcols:
             mtree.heading(c, text=mheads[c])
-            mtree.column(c, width=120 if c != "policy" else 160, anchor=tk.W)
+            mtree.column(c, width=190 if c != "policy" else 380, anchor=tk.W)
         mysb = ttk.Scrollbar(res_frame, orient=tk.VERTICAL, command=mtree.yview)
         mtree.configure(yscrollcommand=mysb.set)
         mtree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1084,7 +1113,7 @@ class PharmTwinApp(tk.Tk):
                     iid=str(r["run_id"]),
                     values=(
                         r.get("run_id"),
-                        r.get("title"),
+                        plain_text(r.get("title") or ""),
                         r.get("created_at") or "",
                         r.get("n_results"),
                     ),
@@ -1102,14 +1131,14 @@ class PharmTwinApp(tk.Tk):
                 messagebox.showerror("Simulations", str(exc))
                 return
             if rows:
-                narrative.config(text=rows[0].get("narrative") or "")
+                narrative.config(text=plain_text(rows[0].get("narrative") or ""))
             for r in rows:
                 fr = r.get("fill_rate")
                 mtree.insert(
                     "",
                     tk.END,
                     values=(
-                        r.get("policy"),
+                        plain_text(r.get("policy") or ""),
                         f"{float(fr):.1%}" if fr is not None else "",
                         f"{float(r.get('unmet_qty') or 0):,.0f}",
                         f"{float(r.get('waste_cost') or 0):,.0f}",
@@ -1126,9 +1155,9 @@ class PharmTwinApp(tk.Tk):
                 messagebox.showerror("Import cached", str(exc))
                 return
             messagebox.showinfo(
-                "Cached Step 4 imported",
-                f"Run #{out['run_id']} saved. Best policy: {out['best']}\n"
-                "Live stock was not modified.",
+                "Saved results loaded (cached Step 4)",
+                f"Run #{out['run_id']} saved. Best method: {plain_text(out['best'])}\n"
+                "Your real stock was not changed.",
             )
             load_runs()
             rtree.selection_set(str(out["run_id"]))
@@ -1140,13 +1169,16 @@ class PharmTwinApp(tk.Tk):
                 lt = float(lt_var.get())
                 max_skus = int(sku_var.get())
             except ValueError:
-                messagebox.showwarning("Invalid input", "Demand, lead time, and max SKUs must be numbers.")
+                messagebox.showwarning(
+                    "Invalid input",
+                    "Sales change, supplier delay and number of medicines must be numbers.",
+                )
                 return
             if not messagebox.askyesno(
-                "Run what-if",
-                f"Run isolated FEFO/FIFO policies with demand×{demand}, "
-                f"L={lt}w, max {max_skus} SKUs?\n"
-                "This may take 30–90 seconds. Live stock will not change.",
+                "Run practice scenario",
+                f"Compare stock methods (FEFO/FIFO policies) with sales ×{demand}, "
+                f"supplier delay {lt} week(s) (L), up to {max_skus} medicines (SKUs)?\n"
+                "This may take 30–90 seconds. Your real stock will not change.",
             ):
                 return
             before = verify_live_stock_untouched()
@@ -1165,27 +1197,27 @@ class PharmTwinApp(tk.Tk):
                 return
             self.config(cursor="")
             msg = (
-                f"Run #{out['run_id']} complete. Best: {out['best']}\n"
-                f"Live stock unchanged: {after['unchanged']} "
-                f"(batches={after['n_batches']}, on-hand={after['on_hand']:,.0f})"
+                f"Run #{out['run_id']} complete. Best method: {plain_text(out['best'])}\n"
+                f"Real stock unchanged: {'Yes' if after['unchanged'] else 'NO — check!'} "
+                f"(batches={after['n_batches']}, units in stock={after['on_hand']:,.0f})"
             )
-            messagebox.showinfo("What-if complete", msg)
+            messagebox.showinfo("Practice run complete", msg)
             load_runs()
             rtree.selection_set(str(out["run_id"]))
             show_results()
 
-        tk.Button(controls, text="Import cached Step 4", command=do_cached).pack(
+        tk.Button(controls, text="Load saved results (cached Step 4)", command=do_cached).pack(
             side=tk.LEFT, padx=8
         )
-        tk.Button(controls, text="Run what-if", command=do_whatif).pack(side=tk.LEFT, padx=4)
-        tk.Button(controls, text="Refresh runs", command=load_runs).pack(side=tk.LEFT, padx=4)
+        tk.Button(controls, text="Run practice scenario (what-if)", command=do_whatif).pack(side=tk.LEFT, padx=4)
+        tk.Button(controls, text="Refresh list", command=load_runs).pack(side=tk.LEFT, padx=4)
         rtree.bind("<<TreeviewSelect>>", show_results)
         load_runs()
 
     def _page_substitutes(self) -> None:
         top = tk.Frame(self.page_host)
         top.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(top, text="Find stocked medicine:").pack(side=tk.LEFT)
+        tk.Label(top, text="Find a medicine we stock:").pack(side=tk.LEFT)
         qvar = tk.StringVar()
         entry = tk.Entry(top, textvariable=qvar, width=36)
         entry.pack(side=tk.LEFT, padx=6)
@@ -1198,13 +1230,13 @@ class PharmTwinApp(tk.Tk):
         right = tk.Frame(mid)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        tk.Label(left, text="Query medicines (stocked)", font=("Segoe UI", 10, "bold")).pack(
+        tk.Label(left, text="Medicine the customer asked for (query)", font=("Segoe UI", 10, "bold")).pack(
             anchor="w"
         )
         qcols = ("sku_id", "name", "mrp")
         qtree = ttk.Treeview(left, columns=qcols, show="headings", height=18)
         for c, w, h in (
-            ("sku_id", 70, "SKU"),
+            ("sku_id", 90, "Code (SKU)"),
             ("name", 280, "Medicine"),
             ("mrp", 70, "MRP"),
         ):
@@ -1217,19 +1249,19 @@ class PharmTwinApp(tk.Tk):
 
         tk.Label(
             right,
-            text="Allowed substitutes (in-stock, gated)",
+            text="Alternatives in stock that pass the safety rules (gated substitutes)",
             font=("Segoe UI", 10, "bold"),
         ).pack(anchor="w")
         rcols = ("sku_id", "name", "score", "source", "aware", "on_hand", "class")
         rtree = ttk.Treeview(right, columns=rcols, show="headings", height=14)
         for c, w, h in (
-            ("sku_id", 70, "SKU"),
+            ("sku_id", 90, "Code (SKU)"),
             ("name", 200, "Alternative"),
-            ("score", 60, "Score"),
-            ("source", 70, "Source"),
-            ("aware", 70, "AWaRe"),
-            ("on_hand", 70, "On hand"),
-            ("class", 140, "Class"),
+            ("score", 110, "How close (score)"),
+            ("source", 170, "Why suggested (source)"),
+            ("aware", 200, "Antibiotic group (AWaRe)"),
+            ("on_hand", 70, "In stock"),
+            ("class", 190, "Medicine group (class)"),
         ):
             rtree.heading(c, text=h)
             rtree.column(c, width=w, anchor=tk.W)
@@ -1238,8 +1270,10 @@ class PharmTwinApp(tk.Tk):
         disclaimer = tk.Label(
             self.page_host,
             text=(
-                "Pharmacist-reviewed inventory alternatives only — not clinical prescribing. "
-                "Schedule H1 / WHO AWaRe / CDSCO gates enforced."
+                "Stock alternatives for the pharmacist to check — not a prescription "
+                "(pharmacist-reviewed, not clinical prescribing). Safety rules applied: "
+                "strictly-controlled drugs blocked (Schedule H1), antibiotic groups checked "
+                "(WHO AWaRe), banned combinations blocked (CDSCO)."
             ),
             fg="#7a3e00",
             anchor="w",
@@ -1281,16 +1315,17 @@ class PharmTwinApp(tk.Tk):
             if out.get("h1_blocked"):
                 info.config(
                     text=(
-                        f"Query: {out.get('query_name')} (SKU {sku})\n"
-                        f"BLOCKED — Schedule H1\n{out.get('h1_message')}"
+                        f"Asked for: {out.get('query_name')} (SKU {sku})\n"
+                        "NOT ALLOWED — strictly-controlled prescription drug; no "
+                        f"alternatives suggested (Schedule H1)\n{out.get('h1_message')}"
                     )
                 )
                 return
             info.config(
                 text=(
-                    f"Query: {out.get('query_name')} (SKU {sku})\n"
-                    f"Therapeutic class: {out.get('query_class') or 'n/a'}\n"
-                    f"Allowed in-stock alternatives: {out.get('n_allowed', 0)}"
+                    f"Asked for: {out.get('query_name')} (SKU {sku})\n"
+                    f"Medicine group (therapeutic class): {out.get('query_class') or 'n/a'}\n"
+                    f"Alternatives in stock that pass the rules: {out.get('n_allowed', 0)}"
                 )
             )
             for r in out.get("results", []):
@@ -1301,15 +1336,15 @@ class PharmTwinApp(tk.Tk):
                         r.get("candidate_sku_id"),
                         r.get("candidate_name"),
                         r.get("score"),
-                        r.get("source"),
-                        r.get("aware"),
+                        plain(SUB_SOURCE, r.get("source")),
+                        plain(AWARE, r.get("aware")),
                         f"{float(r.get('on_hand') or 0):.0f}",
                         r.get("therapeutic_class"),
                     ),
                 )
 
         tk.Button(top, text="Search", command=load_queries).pack(side=tk.LEFT, padx=4)
-        tk.Button(top, text="Recommend substitutes", command=run_rec).pack(side=tk.LEFT, padx=4)
+        tk.Button(top, text="Suggest alternatives", command=run_rec).pack(side=tk.LEFT, padx=4)
         entry.bind("<Return>", load_queries)
         qtree.bind("<<TreeviewSelect>>", run_rec)
         load_queries()
@@ -1317,17 +1352,18 @@ class PharmTwinApp(tk.Tk):
     def _refresh(self) -> None:
         self.nav.selection_clear(0, tk.END)
         self.nav.selection_set(0)
-        self._show("Overview / Twin")
+        self._show(PAGE_OVERVIEW)
 
     def _refresh_twin(self) -> None:
         try:
             out = refresh_twin_snapshot()
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Twin refresh failed", str(exc))
+            messagebox.showerror("Snapshot update failed", str(exc))
             return
         messagebox.showinfo(
-            "Twin snapshot",
-            f"Snapshot #{out['snapshot_id']} synced at {out['synced_at']} (UTC).",
+            "Shop snapshot updated",
+            f"Snapshot #{out['snapshot_id']} saved at {out['synced_at']} (UTC). "
+            "Status is now up to date (IN SYNC).",
         )
         self._refresh()
 
@@ -1347,7 +1383,7 @@ class PharmTwinApp(tk.Tk):
             messagebox.showinfo(
                 "Connected",
                 "MySQL server login OK.\n\n"
-                "If Overview still needs data, click Seed database.\n\n"
+                "If the summary still shows no data, click 'Load demo data (seed database)'.\n\n"
                 f"{msg}",
             )
         else:
@@ -1394,7 +1430,7 @@ class PharmTwinApp(tk.Tk):
         else:
             messagebox.showinfo(
                 "Seed complete",
-                "DEV synthetic data loaded.\nClick Refresh Overview.",
+                "Demo data loaded (DEV synthetic).\nClick 'Back to summary'.",
             )
         self._refresh()
 
