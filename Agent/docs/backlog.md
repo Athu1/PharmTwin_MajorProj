@@ -7,7 +7,7 @@ Ordered for dependency safety. Do not start SCR-* until core acceptance.
 1. **Obtain Bhagyashree export** (sales, stock, batches, purchases) under privacy protocol  
 2. **Archive proposal PDF** to `docs/proposal/`  
 3. **Create MySQL DB + apply schema migrations** from `architecture.md`  
-4. **Ingest adapter** CSV/Excel → staging → validated tables  
+4. ~~**Ingest adapter** CSV/Excel → staging → validated tables~~ — done (`scripts/ingest_sales_export.py`, sales report format)  
 5. **Load DEV synthetic** with `source_system='dev_synthetic'` for CI demos  
 
 ## P1 — Inventory truth
@@ -20,7 +20,7 @@ Ordered for dependency safety. Do not start SCR-* until core acceptance.
 ## P2 — Digital twin core
 
 10. Twin snapshot builder from live tables  
-11. `/api/twin/state` + sync timestamp + stale flag  
+11. ~~Twin sync timestamp + stale flag~~ — done (`services/twin.py`, Overview)  
 12. Twin vs DB validation tests  
 
 ## P3 — Forecast & recommend

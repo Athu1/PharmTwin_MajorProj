@@ -60,7 +60,12 @@ def list_query_medicines(search: str = "", limit: int = 40) -> list[dict[str, An
     try:
         with conn.cursor() as cur:
             params: list[Any] = []
-            where = "source_system IN ('dev_synthetic','pharmacy','sponsor')"
+            # Rows without external_sku_id (Inventory-UI / imported additions) are
+            # not in the Step 5 index; querying catalog clones is backlog P4.
+            where = (
+                "source_system IN ('dev_synthetic','pharmacy','sponsor') "
+                "AND external_sku_id IS NOT NULL"
+            )
             if search.strip():
                 where += " AND (name LIKE %s OR sku_code LIKE %s)"
                 q = f"%{search.strip()}%"

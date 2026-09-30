@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import hashlib
 import json
 import os
 import sys
@@ -368,7 +367,13 @@ def seed(host: str, user: str, password: str, database: str, port: int, apply_sc
             "generated_at": datetime.utcnow().isoformat() + "Z",
         }
         payload = json.dumps(state)
-        source_hash = hashlib.sha256(payload.encode()).hexdigest()
+        # Live fingerprint (not payload hash) so Overview stale detection starts in sync
+        import pymysql
+
+        from services.twin import compute_live_fingerprint
+
+        with conn.cursor(pymysql.cursors.DictCursor) as dcur:
+            source_hash = compute_live_fingerprint(dcur)
         cur.execute(
             """
             INSERT INTO digital_twin_snapshots (synced_at, source_hash, is_stale, state_json)
