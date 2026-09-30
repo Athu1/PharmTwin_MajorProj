@@ -1,0 +1,22 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Secrets / local env
+.env
+
+# Data artifacts (regenerate via scripts)
+data/processed/*.csv
+data/processed/*.parquet
+data/processed/*.json
+data/raw/sponsor/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

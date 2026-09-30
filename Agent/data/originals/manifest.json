@@ -1,0 +1,66 @@
+{
+  "created_at": "2026-09-29T13:45:45.087571+00:00",
+  "note": "READ-ONLY originals. Inventory add/remove must never modify these files or medicines.source_system='reference' rows in MySQL.",
+  "files": {
+    "catalog_deduped.parquet": {
+      "status": "copied",
+      "sha256": "3b5d738f09a0a9b14a1ea33ca68c841d58719d37846800f08066716ab48de99d",
+      "bytes": 13323837,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\catalog_deduped.parquet"
+    },
+    "assortment_3k.csv": {
+      "status": "copied",
+      "sha256": "0b8f921c00d0734042091bc27d8ec625dd4cb92820a06dc886bfd3deda6af931",
+      "bytes": 1284354,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\assortment_3k.csv"
+    },
+    "batches_fefo.csv": {
+      "status": "copied",
+      "sha256": "28356f4630b8572f79cb25dc0bfb2d0d2f75cd50c59f62a69a1d6fd8b933be3e",
+      "bytes": 569538,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\batches_fefo.csv"
+    },
+    "covariates_navi_mumbai.csv": {
+      "status": "copied",
+      "sha256": "4b7a3de9f59ebc9ef3b6470aef851859db6f874eb4f2550802924ee4ee124a63",
+      "bytes": 58071,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\covariates_navi_mumbai.csv"
+    },
+    "transactions_synthetic.csv": {
+      "status": "copied",
+      "sha256": "bf16e5b39f49323e2e942dcf4c99b5eaf5ffa6b84d8ddba5619e8cbd17888993",
+      "bytes": 16640326,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\transactions_synthetic.csv"
+    },
+    "step1_summary.json": {
+      "status": "copied",
+      "sha256": "5ff93a87cb80ca768c27c56ebe87ee7ab6c9fac4c78bff84b12f634cace7cc27",
+      "bytes": 285,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step1_summary.json"
+    },
+    "step3_forecasts_weekly.csv": {
+      "status": "copied",
+      "sha256": "ac621a2c321a69794e2fd59b9b3ca95ae78e9b5bd72edc6c1fd13c7327ff840b",
+      "bytes": 9548563,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step3_forecasts_weekly.csv"
+    },
+    "step3_forecasts_weekly.parquet": {
+      "status": "copied",
+      "sha256": "88c2ebb49f86ca1898aa5d82058d520ff8f1477b5bddebb388cd47c9bdac07de",
+      "bytes": 2444103,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step3_forecasts_weekly.parquet"
+    },
+    "step4_safety_stock_params.csv": {
+      "status": "copied",
+      "sha256": "6867cab44b273fab8cef4d78bc4e6e3d9f64990dbc6ec4759e22c86aabce745c",
+      "bytes": 724171,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step4_safety_stock_params.csv"
+    },
+    "step4_policy_comparison.csv": {
+      "status": "copied",
+      "sha256": "20d6d33e8cb1a17d679feac7fc1e45a5c1d0084f46576826d80d0b43552ed11c",
+      "bytes": 1146,
+      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step4_policy_comparison.csv"
+    }
+  }
+}

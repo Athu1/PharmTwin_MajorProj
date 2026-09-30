@@ -1,0 +1,13 @@
+{
+  "n_catalog_deduped":253973,
+  "n_assortment":3000,
+  "n_days":731,
+  "n_transactions":254410,
+  "n_units_sold":356395,
+  "n_stockout_events":123555,
+  "n_batches":9138,
+  "total_revenue_inr":47349732.0699999928,
+  "date_start":"2023-01-01",
+  "date_end":"2024-12-31",
+  "seed":42
+}
