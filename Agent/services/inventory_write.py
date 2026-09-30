@@ -377,13 +377,69 @@ def add_lot_to_medicine(
         conn.close()
 
 
+def _has_sales_history(cur, medicine_id: int) -> bool:
+    cur.execute(
+        "SELECT EXISTS(SELECT 1 FROM sales_items WHERE medicine_id=%s) AS h", (int(medicine_id),)
+    )
+    return bool(cur.fetchone()["h"])
+
+
+def _deactivate_medicine(cur, med: dict[str, Any]) -> dict[str, Any]:
+    """Soft delete: keep sales / movement history for forecasting, zero the shelf stock."""
+    mid = int(med["medicine_id"])
+    cur.execute(
+        "SELECT batch_id, qty_on_hand FROM medicine_batches "
+        "WHERE medicine_id=%s AND qty_on_hand > 0 FOR UPDATE",
+        (mid,),
+    )
+    now = datetime.utcnow()
+    units = 0.0
+    for b in cur.fetchall():
+        q = float(b["qty_on_hand"])
+        cur.execute(
+            "UPDATE medicine_batches SET qty_on_hand=0 WHERE batch_id=%s", (b["batch_id"],)
+        )
+        cur.execute(
+            """
+            INSERT INTO stock_movements
+            (medicine_id, batch_id, movement_type, qty_delta, unit_price, ref_table, ref_id, occurred_at)
+            VALUES (%s,%s,'ADJUST',%s,NULL,'medicines',%s,%s)
+            """,
+            (mid, b["batch_id"], -q, mid, now),
+        )
+        units += q
+    cur.execute("UPDATE medicines SET is_active=0 WHERE medicine_id=%s", (mid,))
+    _audit(
+        cur,
+        "DEACTIVATE_MEDICINE",
+        mid,
+        None,
+        {
+            "name": med.get("name"),
+            "units_removed_from_shelf": units,
+            "sales_history_kept": True,
+            "reference_catalog_untouched": True,
+        },
+    )
+    return {"removed_medicine_id": mid, "name": med.get("name"), "kept_history": True,
+            "units_removed": units}
+
+
 def remove_medicine(medicine_id: int) -> dict[str, Any]:
-    """Remove a working-inventory medicine and dependent rows. Never deletes reference."""
+    """Remove a working-inventory medicine. Never deletes reference.
+
+    With sales history: soft delete (is_active=0, history kept for forecasting).
+    Without (e.g. added by mistake): hard delete of the medicine and its lots.
+    """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             med = assert_editable(_get_medicine(cur, medicine_id))
             mid = int(medicine_id)
+            if _has_sales_history(cur, mid):
+                out = _deactivate_medicine(cur, med)
+                conn.commit()
+                return out
             cur.execute("DELETE FROM recommendations WHERE medicine_id=%s", (mid,))
             cur.execute("DELETE FROM forecasts WHERE medicine_id=%s", (mid,))
             cur.execute("DELETE FROM alerts WHERE medicine_id=%s", (mid,))
@@ -418,7 +474,7 @@ def remove_medicine(medicine_id: int) -> dict[str, Any]:
                 },
             )
             conn.commit()
-            return {"removed_medicine_id": mid, "name": med.get("name")}
+            return {"removed_medicine_id": mid, "name": med.get("name"), "kept_history": False}
     except Exception:
         conn.rollback()
         raise
@@ -445,8 +501,20 @@ def remove_lot(batch_id: int) -> dict[str, Any]:
             assert_editable(dict(row))
             bid = int(row["batch_id"])
             mid = int(row["medicine_id"])
+            # Only a batch that was received and never used may be deleted (typo fix);
+            # otherwise the sales ledger would lose history.
+            cur.execute(
+                "SELECT (SELECT COUNT(*) FROM sales_items WHERE batch_id=%s) + "
+                "(SELECT COUNT(*) FROM stock_movements WHERE batch_id=%s "
+                " AND movement_type <> 'PURCHASE') AS n",
+                (bid, bid),
+            )
+            if int(cur.fetchone()["n"]) > 0:
+                raise InventoryGuardError(
+                    "This batch has sales or returns recorded, so it cannot be deleted. "
+                    "Use 'Correct quantity' or 'Write off expired' instead."
+                )
             cur.execute("DELETE FROM stock_movements WHERE batch_id=%s", (bid,))
-            cur.execute("UPDATE sales_items SET batch_id=NULL WHERE batch_id=%s", (bid,))
             cur.execute("DELETE FROM medicine_batches WHERE batch_id=%s", (bid,))
             _audit(
                 cur,

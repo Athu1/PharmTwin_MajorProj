@@ -20,7 +20,7 @@ def list_stocked_medicines(
         with conn.cursor() as cur:
             params: list[Any] = list(STOCKED_SOURCES)
             placeholders = ",".join(["%s"] * len(STOCKED_SOURCES))
-            where = f"m.source_system IN ({placeholders})"
+            where = f"m.source_system IN ({placeholders}) AND m.is_active = 1"
             if search.strip():
                 where += " AND (m.name LIKE %s OR m.sku_code LIKE %s)"
                 q = f"%{search.strip()}%"
@@ -41,7 +41,7 @@ def list_stocked_medicines(
                   m.cloned_from_medicine_id,
                   COALESCE(SUM(b.qty_on_hand), 0) AS qty_on_hand,
                   COUNT(b.batch_id) AS n_batches,
-                  MIN(b.expiry_date) AS nearest_expiry
+                  MIN(CASE WHEN b.qty_on_hand > 0 THEN b.expiry_date END) AS nearest_expiry
                 FROM medicines m
                 LEFT JOIN medicine_batches b ON b.medicine_id = m.medicine_id
                 WHERE {where}

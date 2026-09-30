@@ -134,3 +134,23 @@ Status legend: **Target** = designed; **Mapped (DEV)** = filled from current Age
 Rules: dry-run by default; `--commit` writes. Label defaults to `dev_synthetic`; real exports require `--source-system sponsor` and belong in `data/raw/sponsor/` (gitignored). `--create-missing` adds working-inventory rows (cloned from the reference catalog when the name matches; the reference row is never modified). Historical import does **not** change `medicine_batches.qty_on_hand`. Rejects → `data/processed/ingest_rejects.csv`; unmatched products → `data/processed/ingest_unmatched_products.csv`.
 
 Full DDL: see `architecture.md` § Database schema.
+
+---
+
+## 7. Stock transactions (INV-02) and demo dates
+
+**Movement types** (`stock_movements.movement_type`, `qty_delta` sign):
+
+| Action in app | movement_type | qty_delta | Other rows written |
+|---------------|---------------|-----------|--------------------|
+| Sell | `SALE` | − per batch (FEFO) | `sales_transactions` (channel `COUNTER`), `sales_items` per batch; shortfall → extra `sales_items` row with `qty=0`, `unmet_qty>0`, `batch_id NULL` |
+| Receive stock | `PURCHASE` | + | new batch or top-up of same batch no.; audit `PURCHASE` |
+| Customer return | `RETURN_IN` | + | only non-expired batch, only up to units sold; audit `RETURN_IN` |
+| Return to supplier | `RETURN_OUT` | − | audit `RETURN_OUT` |
+| Correct quantity | `ADJUST` | ± | reason required; audit `ADJUST` (old/new qty) |
+| Write off expired | `WRITEOFF_EXPIRY` | − | audit `WRITEOFF_EXPIRY` |
+| Remove sold medicine | `ADJUST` | − remaining | `medicines.is_active = 0`, audit `DEACTIVATE_MEDICINE`; history kept |
+
+Rules: `medicine_batches.qty_on_hand >= 0` is enforced by a DB CHECK (migration 003). Expired stock is never sold. After each action the medicine's `recommendations` row is recomputed from sellable stock (`SS = Z × σ_LT × √(L + R)` parameters unchanged).
+
+**Demo dates** (`app_meta`): `date_shift_days` — whole weeks added to synthetic sales and forecast weeks so history ends today; `batch_date_shift_days` — batches anchored on their own last receipt. Source files are not changed. Forecast weeks are a **backtest** on the last 26 weeks (each has an actual), not a future forecast.

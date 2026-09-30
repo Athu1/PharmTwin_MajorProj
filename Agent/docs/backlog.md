@@ -12,10 +12,10 @@ Ordered for dependency safety. Do not start SCR-* until core acceptance.
 
 ## P1 — Inventory truth
 
-6. Medicine + batch CRUD  
-7. Stock movement ledger  
-8. Post sale / purchase / return (transactions + FEFO allocation suggestion)  
-9. Inventory consistency tests  
+6. ~~Medicine + batch CRUD~~ — done (soft delete keeps sales history)  
+7. ~~Stock movement ledger~~ — done (`stock_movements` written by every stock action)  
+8. ~~Post sale / purchase / return (transactions + FEFO allocation suggestion)~~ — done (`services/stock_ops.py`); purchase orders (PO → receive) still open  
+9. ~~Inventory consistency tests~~ — done (acceptance G01–G05, DB CHECK qty ≥ 0)  
 
 ## P2 — Digital twin core
 

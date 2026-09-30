@@ -123,7 +123,7 @@ def build_live_summary(check_stale: bool = True) -> dict:
             n_catalog = cur.fetchone()["n"]
             cur.execute(
                 "SELECT COUNT(*) AS n FROM medicines WHERE source_system IN "
-                "('dev_synthetic','pharmacy','sponsor')"
+                "('dev_synthetic','pharmacy','sponsor') AND is_active = 1"
             )
             n_stocked = cur.fetchone()["n"]
             cur.execute(

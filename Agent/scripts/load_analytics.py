@@ -54,9 +54,11 @@ def _sku_map(cur) -> dict[int, int]:
 
 
 def _stock_by_sku(cur) -> dict[int, float]:
+    from services.recommendations import SELLABLE_QTY_SQL
+
     cur.execute(
-        """
-        SELECT m.external_sku_id AS sku_id, COALESCE(SUM(b.qty_on_hand), 0) AS qty
+        f"""
+        SELECT m.external_sku_id AS sku_id, {SELLABLE_QTY_SQL} AS qty
         FROM medicines m
         LEFT JOIN medicine_batches b ON b.medicine_id = m.medicine_id
         WHERE m.source_system = 'dev_synthetic' AND m.external_sku_id IS NOT NULL
@@ -86,6 +88,13 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
             else pd.read_csv(fc_path, parse_dates=["week_start"])
         )
         fc["week_start"] = pd.to_datetime(fc["week_start"])
+        # Same whole-week offset the seed applied to sales/batches (0 if none)
+        from services.demo_dates import read_shift_days
+
+        shift = read_shift_days(cur)
+        if shift:
+            fc["week_start"] = fc["week_start"] + pd.Timedelta(days=shift)
+            print(f"  forecast weeks shifted by {shift} days (demo dates)")
         if "method" in fc.columns:
             preferred = fc[fc["method"].astype(str) == "lgbm_env"]
             if len(preferred):
@@ -167,6 +176,8 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
         print("Clearing recommendations table...")
         cur.execute("DELETE FROM recommendations")
         ss = pd.read_csv(ss_path)
+        from services.recommendations import build_explanation, decide_action
+
         rows = []
         for r in ss.itertuples(index=False):
             sku = int(r.sku_id)
@@ -182,28 +193,7 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
             forecast_demand = mu * cover
             order_up = float(r.order_up_to)
             name = str(getattr(r, "name", f"SKU {sku}"))
-
-            if current <= 0:
-                action = "REORDER"
-                qty = max(order_up, 1.0)
-            elif current < rop:
-                action = "REORDER"
-                qty = max(order_up - current, 1.0)
-            elif current > order_up * 2.5:
-                action = "REVIEW_OVERSTOCK"
-                qty = None
-            else:
-                action = "HOLD"
-                qty = None
-
-            explanation = (
-                f"{action} for {name}: on-hand={current:.1f}, "
-                f"ROP={rop:.1f}, SS={ss_qty:.1f} "
-                f"(SS = Z×σ×√(L+R), Z={float(r.z_score):.3f}, "
-                f"σ={float(r.sigma_weekly):.2f}, L={float(r.lead_time_weeks):.0f}w, "
-                f"R={float(r.review_period_weeks):.0f}w, SL={float(r.service_level):.0%}). "
-                f"μ_weekly={mu:.2f}; cover demand≈{forecast_demand:.1f}."
-            )
+            action, qty = decide_action(current, rop, order_up)
             assumptions = {
                 "sku_id": sku,
                 "lead_time_weeks": float(r.lead_time_weeks),
@@ -216,6 +206,9 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
                 "formula": "SS = Z * sigma_LT * sqrt(L + R)",
                 "source": "step4_safety_stock_params",
             }
+            explanation = build_explanation(
+                action, name, current, rop, ss_qty, assumptions, mu, forecast_demand
+            )
             rows.append(
                 (
                     mid,

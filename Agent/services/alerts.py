@@ -51,9 +51,9 @@ def compute_live_alerts(
                         "days_to_expiry": days,
                         "message": (
                             (
-                                f"Expired {-days} days ago"
+                                f"Expired {-days} day{'s' if days != -1 else ''} ago"
                                 if days < 0
-                                else f"Expires in {days} days"
+                                else f"Expires in {days} day{'s' if days != 1 else ''}"
                             )
                             + f" — {row['name']} batch {row['batch_no']} "
                             f"({float(row['qty_on_hand']):.0f} units)"
@@ -69,6 +69,7 @@ def compute_live_alerts(
                 FROM medicines m
                 LEFT JOIN medicine_batches b ON b.medicine_id = m.medicine_id
                 WHERE m.source_system IN ('dev_synthetic','pharmacy','sponsor')
+                  AND m.is_active = 1
                 GROUP BY m.medicine_id, m.name, m.external_sku_id
                 HAVING qty_on_hand < %s
                 ORDER BY qty_on_hand ASC, m.name
