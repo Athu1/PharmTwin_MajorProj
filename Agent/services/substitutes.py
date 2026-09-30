@@ -26,6 +26,7 @@ def _stock_from_db() -> dict[int, float]:
                 FROM medicines m
                 LEFT JOIN medicine_batches b ON b.medicine_id = m.medicine_id
                 WHERE m.source_system IN ('dev_synthetic','pharmacy','sponsor')
+                  AND m.is_active = 1
                   AND m.external_sku_id IS NOT NULL
                 GROUP BY m.external_sku_id
                 """
@@ -63,7 +64,7 @@ def list_query_medicines(search: str = "", limit: int = 40) -> list[dict[str, An
             # Rows without external_sku_id (Inventory-UI / imported additions) are
             # not in the Step 5 index; querying catalog clones is backlog P4.
             where = (
-                "source_system IN ('dev_synthetic','pharmacy','sponsor') "
+                "source_system IN ('dev_synthetic','pharmacy','sponsor') AND is_active = 1 "
                 "AND external_sku_id IS NOT NULL"
             )
             if search.strip():

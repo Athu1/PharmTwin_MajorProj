@@ -174,7 +174,9 @@ def _name_index(cur, where: str) -> dict[str, int]:
 
 def match_products(cur, norm_names: set[str]) -> dict[str, dict[str, Any]]:
     """norm_name -> {'status': working|reference|unmatched, 'medicine_id': ...}."""
-    working = _name_index(cur, "source_system IN ('dev_synthetic','pharmacy','sponsor')")
+    working = _name_index(
+        cur, "source_system IN ('dev_synthetic','pharmacy','sponsor') AND is_active = 1"
+    )
     reference = _name_index(cur, "source_system='reference'")
     out: dict[str, dict[str, Any]] = {}
     for n in norm_names:

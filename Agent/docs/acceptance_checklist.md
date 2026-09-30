@@ -4,6 +4,8 @@ Automated runner:
 
 ```powershell
 cd e:\MajorProject_4th_Yr\Agent
+py -3 scripts/apply_migration_002.py
+py -3 scripts/apply_migration_003.py   # stock transactions (G checks need it)
 py -3 scripts/run_demo_acceptance.py
 ```
 
@@ -30,7 +32,13 @@ Exit code **0** = required checks green (demo-ready).
 | F02 | Deleting a reference catalog medicine is blocked (`InventoryGuardError`) |
 | F03 | Twin stale detection: refresh → not stale → CRUD → stale → refresh → not stale |
 
-F01–F03 add and remove one temporary pharmacy SKU and write twin snapshots (self-cleaning). Skip them with `--skip-write-checks`.
+| G01 | A sale takes stock from the earliest-expiry batch first (FEFO) |
+| G02 | Selling more than is in stock never makes stock negative; the shortfall is saved as a lost sale (`unmet_qty`) |
+| G03 | "What to order" updates live: sale → REORDER, purchase → HOLD |
+| G04 | Invalid actions are refused: correction without a reason, receiving expired stock, strict oversell |
+| G05 | Removing a medicine that was sold keeps its sales history (soft delete, `is_active = 0`) |
+
+F01–F03 and G01–G05 add and remove temporary pharmacy SKUs and write twin snapshots (self-cleaning). Skip them with `--skip-write-checks`.
 
 ## Optional
 
@@ -42,8 +50,10 @@ F01–F03 add and remove one temporary pharmacy SKU and write twin snapshots (se
 
 1. `py -3 scripts/run_desktop.py`
 2. **Overview** — catalog ~254k, stocked count, synthetic banner, **Twin status** (IN SYNC / STALE); after an inventory edit it shows STALE until **Refresh twin snapshot**
-3. **Inventory** — search + FEFO lots; **Add medicine** (type/unit/qty/mfg/expiry); Remove medicine/lot  
-   - Reference 250k catalog stays read-only (`data/originals/` snapshot)
+3. **Stock (Inventory)** — search + FEFO batches; **Add medicine**; Remove medicine/batch  
+   - Reference 250k catalog stays read-only (`data/originals/` snapshot)  
+   - **Daily work** row: select a medicine → **Sell…** (shows which batches, earliest expiry first) → confirm; **Receive stock (purchase)…**; select a batch → **Customer return…**, **Return to supplier…**, **Correct quantity (adjust)…** (reason required), **Write off expired batch** / **Write off ALL expired**  
+   - After a sale, **What to order** for that medicine changes immediately; Overview shows STALE
 4. **Forecasts** — pick SKU → weekly q50/q95
 5. **Recommendations** — filter REORDER → SS formula in explanation
 6. **Alerts** — expiry / low stock

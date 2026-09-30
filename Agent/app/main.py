@@ -21,7 +21,6 @@ from services.inventory_write import (
     FORM_TYPES,
     QTY_UNITS,
     InventoryGuardError,
-    add_lot_to_medicine,
     add_medicine_with_lot,
     count_by_source,
     remove_lot,
@@ -29,6 +28,16 @@ from services.inventory_write import (
     search_reference_catalog,
 )
 from services.recommendations import list_recommendations, recommendation_counts
+from services.stock_ops import (
+    StockError,
+    adjust_batch_qty,
+    customer_return,
+    post_sale,
+    receive_purchase,
+    return_to_supplier,
+    suggest_fefo,
+    write_off_expired,
+)
 from services.simulations import (
     import_cached_step4,
     list_simulation_runs,
@@ -150,7 +159,7 @@ STUB_BODIES = {
         f"Env file: {ROOT / '.env'}\n"
         "CLI: py -3 scripts/load_analytics.py\n"
         "Originals freeze: py -3 scripts/snapshot_originals.py\n"
-        "Inventory schema: py -3 scripts/apply_migration_002.py"
+        "Inventory schema: py -3 scripts/apply_migration_002.py, then apply_migration_003.py"
     ),
 }
 
@@ -283,6 +292,10 @@ class PharmTwinApp(tk.Tk):
         qvar = tk.StringVar()
         entry = tk.Entry(top, textvariable=qvar, width=32)
         entry.pack(side=tk.LEFT, padx=6)
+
+        ops = tk.Frame(self.page_host)
+        ops.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(ops, text="Daily work:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
 
         paned = tk.PanedWindow(self.page_host, orient=tk.VERTICAL, sashrelief=tk.RAISED)
         paned.pack(fill=tk.BOTH, expand=True)
@@ -433,7 +446,10 @@ class PharmTwinApp(tk.Tk):
             name = tree.item(sel[0], "values")[1]
             if not messagebox.askyesno(
                 "Remove from stock",
-                f"Remove this medicine and all its batches from the shop stock list?\n\n{name}\n\n"
+                f"Remove this medicine from the shop stock list?\n\n{name}\n\n"
+                "If it was ever sold, its sales history is KEPT (needed for predictions): "
+                "it is hidden and its remaining stock is set to 0 (soft delete). "
+                "Otherwise it is deleted completely.\n\n"
                 "The India reference list (reference catalog) will NOT be changed.",
             ):
                 return
@@ -445,7 +461,15 @@ class PharmTwinApp(tk.Tk):
             except Exception as exc:  # noqa: BLE001
                 messagebox.showerror("Remove failed", str(exc))
                 return
-            messagebox.showinfo("Removed", f"Removed: {out.get('name')}")
+            if out.get("kept_history"):
+                messagebox.showinfo(
+                    "Removed (history kept)",
+                    f"Removed from stock: {out.get('name')}\n"
+                    f"{out.get('units_removed', 0):.0f} units taken off the shelf. "
+                    "Sales history kept for predictions (is_active = 0).",
+                )
+            else:
+                messagebox.showinfo("Removed", f"Removed: {out.get('name')}")
             load_meds()
 
         def do_remove_lot() -> None:
@@ -467,23 +491,298 @@ class PharmTwinApp(tk.Tk):
             on_select()
             load_meds()
 
-        def do_add_lot() -> None:
-            sel = tree.selection()
-            if not sel:
-                messagebox.showinfo("Add batch", "Select a medicine first.")
-                return
-            self._dialog_add_lot(int(sel[0]), on_done=lambda: (load_meds(), on_select()))
-
         tk.Button(top, text="Search", command=load_meds).pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="Add medicine…", command=lambda: self._dialog_add_medicine(on_done=load_meds)).pack(
             side=tk.LEFT, padx=4
         )
-        tk.Button(top, text="Add batch (lot)…", command=do_add_lot).pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="Remove medicine", command=do_remove_med).pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="Remove batch (lot)", command=do_remove_lot).pack(side=tk.LEFT, padx=4)
+
+        def refresh_both() -> None:
+            keep = tree.selection()
+            load_meds()
+            if keep and tree.exists(keep[0]):
+                tree.selection_set(keep[0])
+                on_select()
+
+        def need_med() -> int | None:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("Select medicine", "Select a medicine in the list first.")
+                return None
+            return int(sel[0])
+
+        def need_batch() -> int | None:
+            sel = btree.selection()
+            if not sel:
+                messagebox.showinfo("Select batch", "Select a batch in the lower list first.")
+                return None
+            return int(sel[0])
+
+        def do_sell() -> None:
+            mid = need_med()
+            if mid is not None:
+                self._dialog_sell(mid, tree.item(str(mid), "values")[1], refresh_both)
+
+        def do_receive() -> None:
+            mid = need_med()
+            if mid is not None:
+                self._dialog_receive(mid, tree.item(str(mid), "values")[1], refresh_both)
+
+        def do_batch_op(kind: str) -> None:
+            bid = need_batch()
+            if bid is not None:
+                self._dialog_batch_op(kind, bid, btree.item(str(bid), "values"), refresh_both)
+
+        def do_writeoff_one() -> None:
+            bid = need_batch()
+            if bid is None:
+                return
+            if not messagebox.askyesno(
+                "Write off expired batch",
+                f"Remove all stock of expired batch ID {bid} from the shelf "
+                "(write-off, WRITEOFF_EXPIRY)?",
+            ):
+                return
+            self._run_stock_op(lambda: write_off_expired(bid), refresh_both,
+                               lambda o: f"Wrote off {o['units']:.0f} expired units.")
+
+        def do_writeoff_all() -> None:
+            if not messagebox.askyesno(
+                "Write off ALL expired stock",
+                "Remove the stock of EVERY expired batch in the shop from the shelf?\n"
+                "Each one is logged in the audit trail (WRITEOFF_EXPIRY).",
+            ):
+                return
+            self._run_stock_op(write_off_expired, refresh_both,
+                               lambda o: f"Wrote off {o['units']:,.0f} units from "
+                               f"{o['batches']:,} expired batches.")
+
+        for text, cmd in (
+            ("Sell…", do_sell),
+            ("Receive stock (purchase)…", do_receive),
+            ("Customer return…", lambda: do_batch_op("return_in")),
+            ("Return to supplier…", lambda: do_batch_op("return_out")),
+            ("Correct quantity (adjust)…", lambda: do_batch_op("adjust")),
+            ("Write off expired batch", do_writeoff_one),
+            ("Write off ALL expired", do_writeoff_all),
+        ):
+            tk.Button(ops, text=text, command=cmd).pack(side=tk.LEFT, padx=3)
         entry.bind("<Return>", load_meds)
         tree.bind("<<TreeviewSelect>>", on_select)
         load_meds()
+
+    def _run_stock_op(self, fn, on_done, success_msg, parent=None) -> bool:
+        """Run a stock_ops call; friendly error on refusal; refresh lists on success."""
+        try:
+            out = fn()
+        except (StockError, InventoryGuardError) as exc:
+            messagebox.showwarning("Not saved", str(exc), parent=parent or self)
+            return False
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Error — nothing saved", str(exc), parent=parent or self)
+            return False
+        messagebox.showinfo(
+            "Saved",
+            success_msg(out) + "\n\nShop summary is now out of date until you click "
+            "'Update shop snapshot'.",
+            parent=parent or self,
+        )
+        if on_done:
+            on_done()
+        return True
+
+    def _dialog_sell(self, medicine_id: int, name: str, on_done=None) -> None:
+        win = tk.Toplevel(self)
+        win.title("Sell medicine (sale)")
+        win.geometry("560x380")
+        win.transient(self)
+        win.grab_set()
+        tk.Label(win, text=name, font=("Segoe UI", 11, "bold"), anchor="w").pack(
+            fill=tk.X, padx=10, pady=(10, 4)
+        )
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+        qty_var = tk.StringVar(value="1")
+        price_var = tk.StringVar()
+        tk.Label(form, text="Quantity to sell").grid(row=0, column=0, sticky="w", pady=3)
+        tk.Entry(form, textvariable=qty_var, width=12).grid(row=0, column=1, sticky="w")
+        tk.Label(form, text="Price per unit (blank = MRP)").grid(row=1, column=0, sticky="w", pady=3)
+        tk.Entry(form, textvariable=price_var, width=12).grid(row=1, column=1, sticky="w")
+        plan_lbl = tk.Label(win, text="", justify=tk.LEFT, anchor="w", wraplength=520)
+        plan_lbl.pack(fill=tk.X, padx=10, pady=8)
+
+        def preview(_e=None) -> None:
+            try:
+                plan = suggest_fefo(medicine_id, qty_var.get())
+            except (StockError, InventoryGuardError) as exc:
+                plan_lbl.config(text=str(exc))
+                return
+            lines = ["Take from these batches — earliest expiry first (FEFO):"]
+            for a in plan["allocations"]:
+                lines.append(
+                    f"  • Batch {a['batch_no']}: {a['take']:.0f} units "
+                    f"(expires {a['expiry_date']}, {a['days_to_expiry']} days left)"
+                )
+            if not plan["allocations"]:
+                lines.append("  • No sellable stock.")
+            if plan["short"] > 0:
+                lines.append(
+                    f"Short by {plan['short']:.0f} units — recorded as a lost sale "
+                    "(unmet_qty) so predictions learn about it."
+                )
+            if plan["expired_qty_skipped"] > 0:
+                lines.append(
+                    f"{plan['expired_qty_skipped']:.0f} expired units were skipped "
+                    "(never sold)."
+                )
+            plan_lbl.config(text="\n".join(lines))
+
+        def confirm() -> None:
+            price_raw = price_var.get().strip()
+            try:
+                price = float(price_raw) if price_raw else None
+            except ValueError:
+                messagebox.showwarning("Not saved", "Price must be a number.", parent=win)
+                return
+
+            def msg(o) -> str:
+                m = f"Sale #{o['sale_id']}: sold {o['fulfilled']:.0f} units."
+                if o["short"] > 0:
+                    m += f"\n{o['short']:.0f} units short — recorded as a lost sale."
+                return m
+
+            if self._run_stock_op(
+                lambda: post_sale(medicine_id, qty_var.get(), unit_price=price),
+                on_done, msg, parent=win,
+            ):
+                win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(fill=tk.X, padx=10, pady=10)
+        tk.Button(btns, text="Confirm sale", command=confirm).pack(side=tk.RIGHT)
+        tk.Button(btns, text="Show batches", command=preview).pack(side=tk.RIGHT, padx=6)
+        tk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.LEFT)
+        preview()
+
+    def _dialog_receive(self, medicine_id: int, name: str, on_done=None) -> None:
+        win = tk.Toplevel(self)
+        win.title("Receive stock from supplier (purchase)")
+        win.geometry("480x300")
+        win.transient(self)
+        win.grab_set()
+        tk.Label(win, text=name, font=("Segoe UI", 11, "bold"), anchor="w").pack(
+            fill=tk.X, padx=10, pady=(10, 4)
+        )
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+        v = {
+            "qty": tk.StringVar(value="100"),
+            "batch_no": tk.StringVar(),
+            "expiry": tk.StringVar(),
+            "mfg": tk.StringVar(),
+            "cost": tk.StringVar(),
+        }
+        for i, (label, key) in enumerate(
+            (
+                ("Quantity received", "qty"),
+                ("Batch no. (same no. adds to that batch)", "batch_no"),
+                ("Expiry (YYYY-MM-DD)", "expiry"),
+                ("Made on (YYYY-MM-DD, optional)", "mfg"),
+                ("Cost per unit (optional)", "cost"),
+            )
+        ):
+            tk.Label(form, text=label, anchor="w").grid(row=i, column=0, sticky="w", pady=3)
+            tk.Entry(form, textvariable=v[key], width=18).grid(row=i, column=1, sticky="w", padx=6)
+
+        def save() -> None:
+            cost_raw = v["cost"].get().strip()
+            try:
+                cost = float(cost_raw) if cost_raw else None
+            except ValueError:
+                messagebox.showwarning("Not saved", "Cost must be a number.", parent=win)
+                return
+            try:
+                expiry = v["expiry"].get().strip()
+                mfg = v["mfg"].get().strip() or None
+                if not expiry:
+                    raise StockError("Expiry date is required.")
+                from datetime import date as _d
+
+                _d.fromisoformat(expiry)
+                if mfg:
+                    _d.fromisoformat(mfg)
+            except ValueError:
+                messagebox.showwarning("Not saved", "Dates must look like 2027-03-31.", parent=win)
+                return
+            except StockError as exc:
+                messagebox.showwarning("Not saved", str(exc), parent=win)
+                return
+            if self._run_stock_op(
+                lambda: receive_purchase(
+                    medicine_id, v["qty"].get(), expiry_date=expiry,
+                    batch_no=v["batch_no"].get().strip() or None, mfg_date=mfg, unit_cost=cost,
+                ),
+                on_done,
+                lambda o: (
+                    f"Received {o['qty']:.0f} units into batch {o['batch_no']}"
+                    + (" (added to existing batch)." if o["topped_up"] else " (new batch).")
+                ),
+                parent=win,
+            ):
+                win.destroy()
+
+        tk.Button(win, text="Save receipt", command=save).pack(side=tk.RIGHT, padx=10, pady=10)
+        tk.Button(win, text="Cancel", command=win.destroy).pack(side=tk.LEFT, padx=10, pady=10)
+
+    def _dialog_batch_op(self, kind: str, batch_id: int, bvals, on_done=None) -> None:
+        titles = {
+            "return_in": "Customer return (RETURN_IN)",
+            "return_out": "Return to supplier (RETURN_OUT)",
+            "adjust": "Correct batch quantity (ADJUST)",
+        }
+        win = tk.Toplevel(self)
+        win.title(titles[kind])
+        win.geometry("480x240")
+        win.transient(self)
+        win.grab_set()
+        tk.Label(
+            win,
+            text=f"Batch {bvals[1]} · expiry {bvals[3]} · in stock {bvals[5]}",
+            anchor="w",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(fill=tk.X, padx=10, pady=(10, 6))
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+        qty_label = "New counted quantity" if kind == "adjust" else "Quantity"
+        qty_var = tk.StringVar(value=str(bvals[5]) if kind == "adjust" else "1")
+        reason_var = tk.StringVar()
+        tk.Label(form, text=qty_label).grid(row=0, column=0, sticky="w", pady=3)
+        tk.Entry(form, textvariable=qty_var, width=12).grid(row=0, column=1, sticky="w", padx=6)
+        tk.Label(
+            form, text="Reason (required)" if kind == "adjust" else "Reason (optional)"
+        ).grid(row=1, column=0, sticky="w", pady=3)
+        tk.Entry(form, textvariable=reason_var, width=36).grid(row=1, column=1, sticky="w", padx=6)
+
+        def save() -> None:
+            reason = reason_var.get()
+            if kind == "return_in":
+                fn = lambda: customer_return(batch_id, qty_var.get(), reason=reason)  # noqa: E731
+                msg = lambda o: f"{o['qty']:.0f} units returned to stock."  # noqa: E731
+            elif kind == "return_out":
+                fn = lambda: return_to_supplier(batch_id, qty_var.get(), reason=reason)  # noqa: E731
+                msg = lambda o: f"{o['qty']:.0f} units sent back to supplier."  # noqa: E731
+            else:
+                fn = lambda: adjust_batch_qty(batch_id, qty_var.get(), reason=reason)  # noqa: E731
+                msg = lambda o: (  # noqa: E731
+                    f"Quantity corrected from {o['old_qty']:.0f} to {o['new_qty']:.0f}. "
+                    "Reason saved in the audit trail."
+                )
+            if self._run_stock_op(fn, on_done, msg, parent=win):
+                win.destroy()
+
+        tk.Button(win, text="Save", command=save).pack(side=tk.RIGHT, padx=10, pady=10)
+        tk.Button(win, text="Cancel", command=win.destroy).pack(side=tk.LEFT, padx=10, pady=10)
 
     def _dialog_add_medicine(self, on_done=None) -> None:
         win = tk.Toplevel(self)
@@ -637,47 +936,6 @@ class PharmTwinApp(tk.Tk):
         tk.Button(btn, text="Save to shop stock", command=save).pack(side=tk.RIGHT)
         tk.Button(btn, text="Cancel", command=win.destroy).pack(side=tk.RIGHT, padx=6)
 
-    def _dialog_add_lot(self, medicine_id: int, on_done=None) -> None:
-        win = tk.Toplevel(self)
-        win.title(f"Add batch (lot) — medicine #{medicine_id}")
-        win.geometry("420x280")
-        win.transient(self)
-        win.grab_set()
-        vars_ = {
-            "quantity": tk.StringVar(value="50"),
-            "mfg_date": tk.StringVar(value="2025-01-01"),
-            "expiry_date": tk.StringVar(value="2027-01-01"),
-            "batch_no": tk.StringVar(),
-        }
-        for i, (label, key) in enumerate(
-            (
-                ("Quantity", "quantity"),
-                ("Made on (YYYY-MM-DD)", "mfg_date"),
-                ("Expiry (YYYY-MM-DD)", "expiry_date"),
-                ("Batch no", "batch_no"),
-            )
-        ):
-            tk.Label(win, text=label, anchor="w").grid(row=i, column=0, sticky="w", padx=10, pady=4)
-            tk.Entry(win, textvariable=vars_[key], width=28).grid(row=i, column=1, padx=10, pady=4)
-
-        def save() -> None:
-            try:
-                add_lot_to_medicine(
-                    medicine_id,
-                    quantity=float(vars_["quantity"].get()),
-                    mfg_date=vars_["mfg_date"].get().strip() or None,
-                    expiry_date=vars_["expiry_date"].get().strip(),
-                    batch_no=vars_["batch_no"].get().strip() or None,
-                )
-            except Exception as exc:  # noqa: BLE001
-                messagebox.showerror("Add batch failed", str(exc), parent=win)
-                return
-            win.destroy()
-            if on_done:
-                on_done()
-
-        tk.Button(win, text="Save batch", command=save).grid(row=5, column=1, sticky="e", padx=10, pady=12)
-
     def _page_forecasts(self) -> None:
         top = tk.Frame(self.page_host)
         top.pack(fill=tk.X, pady=(0, 6))
@@ -698,7 +956,7 @@ class PharmTwinApp(tk.Tk):
             "name": "Medicine",
             "cohort": "Medicine group (cohort)",
             "model": "Prediction method (model)",
-            "weeks": "Weeks ahead",
+            "weeks": "Weeks checked",
             "avg_yhat": "Expected sales / week (avg yhat)",
             "avg_q95": "Busy-week sales / week (avg q95)",
             "from_w": "From",
@@ -725,7 +983,11 @@ class PharmTwinApp(tk.Tk):
 
         tk.Label(
             week_frame,
-            text="Week-by-week prediction for the selected medicine — expected sales, and a safe upper figure for busy weeks (yhat = q50 middle estimate; upper = q95)",
+            text=(
+                "Predicted vs actually sold, week by week, for the selected medicine — "
+                "a test on recent weeks the model did not train on "
+                "(backtest; yhat = q50 middle estimate; upper = q95)"
+            ),
             anchor="w",
             font=("Segoe UI", 10, "bold"),
         ).pack(fill=tk.X)
@@ -765,8 +1027,10 @@ class PharmTwinApp(tk.Tk):
                 return
             summary_lbl.config(
                 text=(
-                    f"Weekly sales predictions for {counts['n_medicines']:,} medicines "
-                    f"({counts['n_rows']:,} rows, Step 3 LightGBM with season/weather). "
+                    f"Weekly sales predictions for {counts['n_medicines']:,} medicines, "
+                    "checked against what actually sold in recent weeks "
+                    f"({counts['n_rows']:,} rows, Step 3 LightGBM with season/weather, "
+                    "backtest). "
                     "Accuracy is checked with WMAPE/MASE (not MAPE)."
                 )
             )

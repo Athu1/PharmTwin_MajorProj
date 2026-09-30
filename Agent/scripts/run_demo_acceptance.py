@@ -358,6 +358,195 @@ def _check_inventory_crud(report: Report) -> None:
                 pass
 
 
+def _purge_test_medicine(medicine_id: int) -> None:
+    """Hard-delete an acceptance-test medicine and everything it created (test only)."""
+    from services.db import get_connection
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            mid = int(medicine_id)
+            cur.execute("SELECT DISTINCT sale_id FROM sales_items WHERE medicine_id=%s", (mid,))
+            sale_ids = [r["sale_id"] for r in cur.fetchall()]
+            for table in ("recommendations", "sales_items", "stock_movements", "inventory_audit"):
+                cur.execute(f"DELETE FROM {table} WHERE medicine_id=%s", (mid,))
+            for sid in sale_ids:
+                cur.execute("DELETE FROM sales_transactions WHERE sale_id=%s", (sid,))
+            cur.execute("DELETE FROM medicine_batches WHERE medicine_id=%s", (mid,))
+            cur.execute(
+                "DELETE FROM medicines WHERE medicine_id=%s AND source_system <> 'reference'",
+                (mid,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _check_stock_ops(report: Report) -> None:
+    """G01–G05: sale / purchase / return / adjust / soft delete on a temporary medicine."""
+    import json as _json
+    from datetime import date, timedelta
+
+    from services.db import get_connection
+    from services.inventory_write import add_medicine_with_lot, remove_medicine
+    from services.stock_ops import (
+        StockError,
+        adjust_batch_qty,
+        check_stock_consistency,
+        post_sale,
+        receive_purchase,
+        suggest_fefo,
+    )
+
+    today = date.today()
+    mid: int | None = None
+    try:
+        first = add_medicine_with_lot(
+            name="ACCEPTANCE STOCK-OPS SKU (auto-removed)",
+            form_type="TABLET",
+            qty_unit="TABLETS",
+            quantity=10,
+            mfg_date=None,
+            expiry_date=str(today + timedelta(days=400)),
+            batch_no="ACC-LATE",
+        )
+        mid = int(first["medicine_id"])
+        early = receive_purchase(
+            mid, 5, expiry_date=str(today + timedelta(days=60)), batch_no="ACC-EARLY"
+        )
+        # Rec row with known Step 4 parameters so the live rule can be checked
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO recommendations
+                    (medicine_id, action_type, qty_suggested, current_stock, forecast_demand,
+                     incoming_po_qty, safety_stock, reorder_point, explanation_text,
+                     assumptions_json)
+                    VALUES (%s,'HOLD',NULL,15,4,0,2,6,'SS = test',%s)
+                    """,
+                    (
+                        mid,
+                        _json.dumps(
+                            {"order_up_to": 12, "lead_time_weeks": 1, "review_period_weeks": 1,
+                             "z_score": 1.645, "sigma_weekly": 1, "service_level": 0.95}
+                        ),
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        plan = suggest_fefo(mid, 7)
+        order = [a["batch_id"] for a in plan["allocations"]]
+        report.add(
+            "G01",
+            "Sale uses earliest-expiry batch first (FEFO)",
+            order == [early["batch_id"], first["batch_id"]]
+            and plan["allocations"][0]["take"] == 5,
+            f"allocation={[(a['batch_no'], a['take']) for a in plan['allocations']]}",
+        )
+
+        sale = post_sale(mid, 20)  # only 15 in stock
+        consistency = check_stock_consistency()
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(SUM(qty_on_hand),0) AS q, MIN(qty_on_hand) AS mn "
+                    "FROM medicine_batches WHERE medicine_id=%s",
+                    (mid,),
+                )
+                q = cur.fetchone()
+                cur.execute(
+                    "SELECT SUM(unmet_qty) AS u FROM sales_items WHERE sale_id=%s",
+                    (sale["sale_id"],),
+                )
+                unmet = float(cur.fetchone()["u"] or 0)
+                cur.execute(
+                    "SELECT action_type FROM recommendations WHERE medicine_id=%s", (mid,)
+                )
+                action_after_sale = cur.fetchone()["action_type"]
+        finally:
+            conn.close()
+        report.add(
+            "G02",
+            "Overselling never goes negative; shortfall saved as lost sale (unmet_qty)",
+            float(q["q"]) == 0 and float(q["mn"]) >= 0 and unmet == 5 and consistency["ok"],
+            f"on_hand={float(q['q']):.0f}, unmet={unmet:.0f}, consistency={consistency}",
+        )
+
+        receive_purchase(mid, 8, expiry_date=str(today + timedelta(days=300)), batch_no="ACC-NEW")
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT action_type FROM recommendations WHERE medicine_id=%s", (mid,)
+                )
+                action_after_buy = cur.fetchone()["action_type"]
+        finally:
+            conn.close()
+        report.add(
+            "G03",
+            "Order suggestion updates live (sale -> REORDER, purchase -> HOLD)",
+            action_after_sale == "REORDER" and action_after_buy == "HOLD",
+            f"after sale={action_after_sale}, after purchase={action_after_buy}",
+        )
+
+        blocked = []
+        for fn in (
+            lambda: adjust_batch_qty(first["batch_id"], 3, reason=""),
+            lambda: receive_purchase(mid, 1, expiry_date=str(today - timedelta(days=1))),
+            lambda: post_sale(mid, 100, allow_partial=False),
+        ):
+            try:
+                fn()
+                blocked.append(False)
+            except StockError:
+                blocked.append(True)
+        report.add(
+            "G04",
+            "Invalid stock actions refused (no reason / expired receipt / strict oversell)",
+            all(blocked),
+            f"refused={blocked}",
+        )
+
+        out = remove_medicine(mid)
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT m.is_active, (SELECT COUNT(*) FROM sales_items s "
+                    "WHERE s.medicine_id=m.medicine_id) AS n_sales "
+                    "FROM medicines m WHERE m.medicine_id=%s",
+                    (mid,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        report.add(
+            "G05",
+            "Removing a sold medicine keeps its sales history (soft delete)",
+            bool(out.get("kept_history")) and row and not row["is_active"] and row["n_sales"] > 0,
+            f"kept_history={out.get('kept_history')}, is_active={row and row['is_active']}, "
+            f"sales rows={row and row['n_sales']}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        report.add(
+            "G01",
+            "Stock transactions",
+            False,
+            f"{exc} (did you run scripts/apply_migration_003.py?)",
+        )
+    finally:
+        if mid is not None:
+            try:
+                _purge_test_medicine(mid)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _check_offline_artifacts(report: Report) -> None:
     needed = [
         "catalog_deduped.parquet",
@@ -429,7 +618,7 @@ def main() -> int:
     p.add_argument(
         "--skip-write-checks",
         action="store_true",
-        help="Skip F01–F03 (they add + remove a temporary pharmacy SKU and a twin snapshot)",
+        help="Skip F01–F03 and G01–G05 (they add + remove temporary pharmacy SKUs)",
     )
     args = p.parse_args()
 
@@ -446,6 +635,7 @@ def main() -> int:
         _check_sim_isolation(report)
         if not args.skip_write_checks:
             _check_inventory_crud(report)
+            _check_stock_ops(report)
     _check_offline_artifacts(report)
     _check_desktop_import(report)
 

@@ -113,7 +113,15 @@ def _load_catalog() -> pd.DataFrame:
     )
 
 
-def seed(host: str, user: str, password: str, database: str, port: int, apply_schema: bool) -> None:
+def seed(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    port: int,
+    apply_schema: bool,
+    date_shift: bool = True,
+) -> None:
     print("Loading full catalog + assortment + ops files...")
     catalog = _load_catalog()
     assortment = pd.read_csv(DATA / "assortment_3k.csv")
@@ -127,6 +135,32 @@ def seed(host: str, user: str, password: str, database: str, port: int, apply_sc
         tx = pd.read_csv(DATA / "transactions_synthetic.csv", parse_dates=["date"])
 
     stocked_skus = {int(x) for x in assortment["sku_id"].dropna().astype(int)}
+
+    # Demo dates: move synthetic history forward so it ends today (whole weeks)
+    from services.demo_dates import compute_shift_days
+
+    tx["date"] = pd.to_datetime(tx["date"])
+    # Sales end today. Batches are a Step 1 opening-stock snapshot (receipts end
+    # 2024-01-01), so they are anchored on their own last receipt instead.
+    shift_days = compute_shift_days(tx["date"].max().date()) if date_shift else 0
+    batch_shift_days = (
+        compute_shift_days(pd.to_datetime(batches["receipt_date"]).max().date())
+        if date_shift
+        else 0
+    )
+    if shift_days:
+        tx["date"] = tx["date"] + pd.Timedelta(days=shift_days)
+        print(
+            f"  demo dates: sales shifted +{shift_days} days -> "
+            f"{tx['date'].min().date()} .. {tx['date'].max().date()}"
+        )
+    if batch_shift_days:
+        for col in ("receipt_date", "mfg_date", "expiry_date"):
+            batches[col] = pd.to_datetime(batches[col]) + pd.Timedelta(days=batch_shift_days)
+        print(
+            f"  demo dates: batches shifted +{batch_shift_days} days -> received "
+            f"{batches['receipt_date'].min().date()} .. {batches['receipt_date'].max().date()}"
+        )
     print(
         f"  catalog rows: {len(catalog):,} | "
         f"active assortment (stocked): {len(stocked_skus):,} | "
@@ -401,6 +435,16 @@ def seed(host: str, user: str, password: str, database: str, port: int, apply_sc
             "ON DUPLICATE KEY UPDATE meta_value=VALUES(meta_value)",
             (str(len(stocked_skus)),),
         )
+        cur.execute(
+            "INSERT INTO app_meta (meta_key, meta_value) VALUES ('date_shift_days', %s) "
+            "ON DUPLICATE KEY UPDATE meta_value=VALUES(meta_value)",
+            (str(shift_days),),
+        )
+        cur.execute(
+            "INSERT INTO app_meta (meta_key, meta_value) VALUES ('batch_date_shift_days', %s) "
+            "ON DUPLICATE KEY UPDATE meta_value=VALUES(meta_value)",
+            (str(batch_shift_days),),
+        )
         conn.commit()
 
         # Optional: Step 3–4 analytics if offline outputs exist
@@ -439,6 +483,11 @@ def main() -> None:
     p.add_argument("--password", default=None, help="MySQL password (or set PHARMTWIN_DB_PASSWORD)")
     p.add_argument("--database", default=os.getenv("PHARMTWIN_DB_NAME", "pharmtwinai"))
     p.add_argument("--apply-schema", action="store_true", help="Run 001_init_schema.sql first")
+    p.add_argument(
+        "--no-date-shift",
+        action="store_true",
+        help="Keep original 2023-2024 synthetic dates (default: shift so history ends today)",
+    )
     args = p.parse_args()
 
     if not (DATA / "assortment_3k.csv").exists():
@@ -453,7 +502,15 @@ def main() -> None:
         password = getpass.getpass(f"MySQL password for {args.user}@{args.host}: ")
 
     print(f"Connecting as {args.user}@{args.host}:{args.port} ...")
-    seed(args.host, args.user, password, args.database, args.port, args.apply_schema)
+    seed(
+        args.host,
+        args.user,
+        password,
+        args.database,
+        args.port,
+        args.apply_schema,
+        date_shift=not args.no_date_shift,
+    )
 
 
 if __name__ == "__main__":
