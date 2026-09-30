@@ -26,6 +26,11 @@ Exit code **0** = required checks green (demo-ready).
 | C01 | Simulations do **not** mutate live `medicine_batches` |
 | D01–D02 | Offline artifacts + WMAPE/MASE (not MAPE) |
 | E01 | Desktop `app.main` imports |
+| F01 | Inventory add → remove leaves reference catalog count unchanged |
+| F02 | Deleting a reference catalog medicine is blocked (`InventoryGuardError`) |
+| F03 | Twin stale detection: refresh → not stale → CRUD → stale → refresh → not stale |
+
+F01–F03 add and remove one temporary pharmacy SKU and write twin snapshots (self-cleaning). Skip them with `--skip-write-checks`.
 
 ## Optional
 
@@ -36,7 +41,7 @@ Exit code **0** = required checks green (demo-ready).
 ## Manual desktop walkthrough (2–3 min)
 
 1. `py -3 scripts/run_desktop.py`
-2. **Overview** — catalog ~254k, stocked count, synthetic banner
+2. **Overview** — catalog ~254k, stocked count, synthetic banner, **Twin status** (IN SYNC / STALE); after an inventory edit it shows STALE until **Refresh twin snapshot**
 3. **Inventory** — search + FEFO lots; **Add medicine** (type/unit/qty/mfg/expiry); Remove medicine/lot  
    - Reference 250k catalog stays read-only (`data/originals/` snapshot)
 4. **Forecasts** — pick SKU → weekly q50/q95

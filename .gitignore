@@ -10,25 +10,14 @@
 # 2. Large Data & Model Artifacts
 # (Prevents hitting GitHub's 100 MB file limit)
 # ==========================================
-# Raw sponsor POS data (NDA / Privacy)
-data/raw/sponsor/
-data/raw/*.csv
-data/raw/*.xlsx
+# Raw sponsor POS data (NDA / Privacy) — real exports go in Agent/data/raw/sponsor/
+Agent/data/raw/
 
-# Processed synthetic outputs & heavy parquets (can be regenerated via scripts)
-data/processed/*.csv
-data/processed/*.parquet
-data/processed/*.json
-data/processed/models_step3/
-
-# Frozen originals backup (contains ~254k SKU files > 50-100MB)
-data/originals/*.csv
-data/originals/*.parquet
-data/originals/*.json
-
-# Keep folder structure intact in git
-!data/processed/.gitkeep
-!data/originals/README.md
+# Processed outputs (regenerate via scripts). Agent/data/originals/ and
+# Agent/data/processed/models_step3/ stay TRACKED on purpose (frozen demo baseline).
+Agent/data/processed/*.csv
+Agent/data/processed/*.parquet
+Agent/data/processed/*.json
 
 # ==========================================
 # 3. Python & Environments

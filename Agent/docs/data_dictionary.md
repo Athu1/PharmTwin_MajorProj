@@ -112,5 +112,25 @@ Status legend: **Target** = designed; **Mapped (DEV)** = filled from current Age
 | `step3_forecasts_weekly.*` | forecasts |
 | `step4_safety_stock_params.csv` | recommendations inputs |
 | `step5_*` | knowledge / substitute audit (not clinical Rx) |
+| POS "Customer wise sales Report" xlsx/csv | sales_transactions / sales_items / stock_movements via `scripts/ingest_sales_export.py` |
+
+---
+
+## 6. Sales export format (ingest adapter)
+
+`services/sales_ingest.py` reads the POS "Customer wise sales Report" (title row, customer row, then header row — auto-detected).
+
+| Export column | Canonical | Stored in |
+|---------------|-----------|-----------|
+| Vou.No. + Type + Date | voucher key (sha1 → `sales_transactions.channel = export:<hash>`) | idempotency: re-runs skip loaded vouchers |
+| Date | `sold_at` | `sales_transactions.sold_at` |
+| Product | `product` → normalised name match | `sales_items.medicine_id` |
+| Qty. | units sold | `sales_items.qty`, `stock_movements.qty_delta` (negative) |
+| Amount / Qty. | per-unit price (Rate is per pack; Amount = Qty/Unit × Rate) | `sales_items.unit_price` |
+| Batch | lot match on (medicine_id, batch_no) if present | `sales_items.batch_id` (else NULL) |
+| Unit, Pack, Comp., Expiry | staging / validation only | — |
+| **Doct Name, Doct Add, Pat Name, Pat Add, Mobile**, customer title row | **never read** (column allowlist) | — |
+
+Rules: dry-run by default; `--commit` writes. Label defaults to `dev_synthetic`; real exports require `--source-system sponsor` and belong in `data/raw/sponsor/` (gitignored). `--create-missing` adds working-inventory rows (cloned from the reference catalog when the name matches; the reference row is never modified). Historical import does **not** change `medicine_batches.qty_on_hand`. Rejects → `data/processed/ingest_rejects.csv`; unmatched products → `data/processed/ingest_unmatched_products.csv`.
 
 Full DDL: see `architecture.md` § Database schema.

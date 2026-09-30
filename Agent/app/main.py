@@ -37,7 +37,7 @@ from services.simulations import (
     verify_live_stock_untouched,
 )
 from services.substitutes import list_query_medicines, recommend_for_sku
-from services.twin import build_live_summary
+from services.twin import build_live_summary, refresh_twin_snapshot
 
 PAGES = [
     "Overview / Twin",
@@ -87,6 +87,13 @@ def overview_text() -> str:
     try:
         summary = build_live_summary()
         meta = get_meta()
+        if summary.get("is_stale"):
+            twin_status = (
+                "STALE — inventory/sales changed since last sync. "
+                "Click 'Refresh twin snapshot'."
+            )
+        else:
+            twin_status = "IN SYNC"
         return (
             "Pharmacy Digital Twin — live summary\n\n"
             f"Catalog knowledge base: {summary.get('n_catalog', summary.get('n_medicines', 0)):,} medicines\n"
@@ -94,6 +101,7 @@ def overview_text() -> str:
             f"Open batches: {summary.get('n_batches', 0):,}\n"
             f"On-hand units: {summary.get('on_hand_units', 0):,.0f}\n"
             f"Latest twin sync: {summary.get('synced_at', 'n/a')}\n"
+            f"Twin status: {twin_status}\n"
             f"Data mode: {meta.get('data_mode', 'unknown')}\n"
             f"Last seed: {meta.get('last_seed_at', 'n/a')}\n\n"
             f"Note: {summary.get('label', '')}\n\n"
@@ -155,6 +163,9 @@ class PharmTwinApp(tk.Tk):
         tk.Button(left, text="Seed database", command=self._run_seed).pack(fill=tk.X, pady=4)
         tk.Button(left, text="Load analytics", command=self._run_analytics).pack(fill=tk.X, pady=4)
         tk.Button(left, text="Refresh Overview", command=self._refresh).pack(fill=tk.X, pady=4)
+        tk.Button(left, text="Refresh twin snapshot", command=self._refresh_twin).pack(
+            fill=tk.X, pady=4
+        )
 
         self.content = tk.Frame(body)
         self.content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1307,6 +1318,18 @@ class PharmTwinApp(tk.Tk):
         self.nav.selection_clear(0, tk.END)
         self.nav.selection_set(0)
         self._show("Overview / Twin")
+
+    def _refresh_twin(self) -> None:
+        try:
+            out = refresh_twin_snapshot()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Twin refresh failed", str(exc))
+            return
+        messagebox.showinfo(
+            "Twin snapshot",
+            f"Snapshot #{out['snapshot_id']} synced at {out['synced_at']} (UTC).",
+        )
+        self._refresh()
 
     def _prompt_password(self) -> None:
         pwd = simpledialog.askstring(

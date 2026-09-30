@@ -58,7 +58,8 @@ def _check_db(report: Report) -> None:
             cur.execute("SELECT COUNT(*) AS n FROM medicines")
             n_cat = int(cur.fetchone()["n"])
             cur.execute(
-                "SELECT COUNT(*) AS n FROM medicines WHERE source_system='dev_synthetic'"
+                "SELECT COUNT(*) AS n FROM medicines WHERE source_system IN "
+                "('dev_synthetic','pharmacy','sponsor')"
             )
             n_stock = int(cur.fetchone()["n"])
             cur.execute(
@@ -271,6 +272,92 @@ def _check_sim_isolation(report: Report) -> None:
         report.add("C01", "Simulation isolation", False, str(exc))
 
 
+def _check_inventory_crud(report: Report) -> None:
+    """F01–F03: working-inventory CRUD, reference immutability, twin stale flag.
+
+    Writes a temporary pharmacy medicine and removes it again (self-cleaning).
+    """
+    from services.db import get_connection
+    from services.inventory_write import (
+        InventoryGuardError,
+        add_medicine_with_lot,
+        remove_medicine,
+        search_reference_catalog,
+    )
+    from services.twin import check_twin_stale, refresh_twin_snapshot
+
+    def ref_count() -> int:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM medicines WHERE source_system='reference'"
+                )
+                return int(cur.fetchone()["n"])
+        finally:
+            conn.close()
+
+    added_id: int | None = None
+    stale_steps: list[bool] = []
+    try:
+        n_ref = ref_count()
+        refs = search_reference_catalog("paracetamol", limit=1) or search_reference_catalog(
+            "a", limit=1
+        )
+        refresh_twin_snapshot()
+        stale_steps.append(check_twin_stale()["is_stale"])  # expect False
+
+        out = add_medicine_with_lot(
+            name="ACCEPTANCE TEMP SKU (auto-removed)",
+            form_type="TABLET",
+            qty_unit="TABLETS",
+            quantity=10,
+            mfg_date="2025-01-01",
+            expiry_date="2027-12-31",
+            clone_from_medicine_id=int(refs[0]["medicine_id"]) if refs else None,
+        )
+        added_id = int(out["medicine_id"])
+        remove_medicine(added_id)
+        added_id = None
+        stale_steps.append(check_twin_stale()["is_stale"])  # expect True
+
+        n_ref_after = ref_count()
+        report.add(
+            "F01",
+            "Inventory add/remove leaves reference catalog unchanged",
+            n_ref_after == n_ref,
+            f"reference before={n_ref:,}, after={n_ref_after:,}",
+        )
+
+        if not refs:
+            report.add("F02", "Reference catalog delete blocked", False, "no reference rows")
+        else:
+            try:
+                remove_medicine(int(refs[0]["medicine_id"]))
+                report.add(
+                    "F02", "Reference catalog delete blocked", False, "delete was allowed!"
+                )
+            except InventoryGuardError as exc:
+                report.add("F02", "Reference catalog delete blocked", True, str(exc)[:80])
+
+        refresh_twin_snapshot()
+        stale_steps.append(check_twin_stale()["is_stale"])  # expect False
+        report.add(
+            "F03",
+            "Twin stale detection (sync -> CRUD -> stale -> refresh)",
+            stale_steps == [False, True, False],
+            f"is_stale sequence={stale_steps} (expected [False, True, False])",
+        )
+    except Exception as exc:  # noqa: BLE001
+        report.add("F01", "Inventory CRUD / twin stale checks", False, str(exc))
+    finally:
+        if added_id is not None:
+            try:
+                remove_medicine(added_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _check_offline_artifacts(report: Report) -> None:
     needed = [
         "catalog_deduped.parquet",
@@ -336,6 +423,16 @@ def _check_desktop_import(report: Report) -> None:
 
 
 def main() -> int:
+    import argparse
+
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument(
+        "--skip-write-checks",
+        action="store_true",
+        help="Skip F01–F03 (they add + remove a temporary pharmacy SKU and a twin snapshot)",
+    )
+    args = p.parse_args()
+
     print("=" * 64)
     print("PharmTwinAI — Core acceptance / demo checklist (TEST-01)")
     print("=" * 64)
@@ -347,6 +444,8 @@ def main() -> int:
     if any(r.id == "A01" and r.ok for r in report.results):
         _check_services(report)
         _check_sim_isolation(report)
+        if not args.skip_write_checks:
+            _check_inventory_crud(report)
     _check_offline_artifacts(report)
     _check_desktop_import(report)
 
