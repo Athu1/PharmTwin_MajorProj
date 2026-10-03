@@ -17,12 +17,14 @@ Update this file at the end of each major phase.
 | TWIN-01 | Snapshot sync + stale detection | **Completed** | Live fingerprint in `services/twin.py`; Overview shows IN SYNC / STALE; *Refresh twin snapshot* button |
 | TWIN-02 | What-if simulations (isolated) | **In progress** | Desktop Simulations: cached Step 4 + demand-shock what-if; live stock fingerprint checked |
 | FC-01 | Intermittent baselines | **Completed (offline)** | Step 2 on 3k SKUs |
-| FC-02 | Env LightGBM quantiles | **In progress** | 81k forecast rows in MySQL; desktop Forecasts page live |
+| FC-02 | Env LightGBM quantiles | **In progress** | 81k forecast rows in MySQL; desktop Forecasts page live. Benchmarked against XGBoost, random forest, Poisson GLM and a stacking blend (`scripts/run_benchmark.py`); see `docs/model_card.md` |
 | REC-01 | Reorder / SS recommendations | **In progress** | 3k SS/ROP recommendations; action + on-hand recomputed live after every stock transaction (sellable, non-expired stock); Step 4 parameters not retrained |
 | ALT-01 | Low-stock / expiry alerts | **In progress** | Live Alerts page from batches (expiry + low stock) |
 | UI-01 | Desktop app (tkinter) | **In progress** | All core nav pages live |
 | UI-02 | Flask web UI | **Deferred** | Desktop-first (D2) |
-| SUB-01 | H1/AWaRe/CDSCO substitutes | **In progress** | Desktop Substitutes page wraps Step 5 + live stock |
+| SUB-01 | H1/AWaRe/CDSCO substitutes | **In progress** | Desktop Substitutes page wraps Step 5 + live stock; withheld candidates now listed with the reason they were blocked |
+| FC-03 | Stockout-risk classifier + false-positive analysis | **Completed** | `scripts/run_step6.py`: LightGBM vs logistic regression, cost-based threshold choice, self-reported drift / fatigue warnings; see `docs/false_positives.md` |
+| DATA-06 | Preprocessing design for sponsor data | **Completed (design)** | `docs/preprocessing.md`; priority 1 is populating `demand_coverage` |
 | TEST-01 | Core acceptance suite | **Completed** | `scripts/run_demo_acceptance.py` + `docs/acceptance_checklist.md` (24/24 incl. F01–F03 inventory CRUD + twin stale) |
 | SCR-01 | Anemia screening MVP | **Gated** | Research placeholder only (D7=B) |
 | SCR-02 | Other screening modules | **Requires approval** | D8 |

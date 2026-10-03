@@ -106,14 +106,45 @@ def recommend_for_sku(sku_id: int, top_n: int = 5) -> dict[str, Any]:
         sku_id, top_n=top_n, require_in_stock=True, include_blocked=False
     )
     # Also surface blocked reasons for transparency when nothing allowed
+    # Probe wider than the allowed list: the candidates a rule removed sit BELOW the
+    # ones that survived, so a same-size probe would only return the same rows back.
     blocked_probe = engine.recommend(
-        sku_id, top_n=top_n, require_in_stock=False, include_blocked=True
+        sku_id, top_n=max(top_n * 4, 20), require_in_stock=False, include_blocked=True
     )
     h1_block = (
         blocked_probe
         and blocked_probe[0].source == "blocked"
         and blocked_probe[0].schedule_h1
     )
+
+    def _row_payload(r) -> dict[str, Any]:
+        return {
+            "candidate_sku_id": r.candidate_sku_id,
+            "candidate_name": r.candidate_name,
+            "score": round(float(r.score), 4),
+            "source": r.source,
+            "aware": r.aware,
+            "schedule_h1": r.schedule_h1,
+            "blocked": r.blocked,
+            "block_reason": r.block_reason,
+            "price_inr": r.price_inr,
+            "therapeutic_class": r.therapeutic_class,
+            "on_hand": float(engine.stock.get(r.candidate_sku_id, 0.0)),
+        }
+
+    # Candidates the safety rules removed. Showing WHY one was withheld is more useful
+    # to a pharmacist than silently offering a shorter list (docs/false_positives.md).
+    allowed_ids = {r.candidate_sku_id for r in results}
+    withheld = [
+        _row_payload(r)
+        for r in blocked_probe
+        if r.candidate_sku_id > 0
+        and r.candidate_sku_id not in allowed_ids
+        and (r.blocked or float(engine.stock.get(r.candidate_sku_id, 0.0)) <= 0)
+    ]
+    for row in withheld:
+        if not row["block_reason"] and row["on_hand"] <= 0:
+            row["block_reason"] = "Not in stock"
 
     payload_results = [
         {
@@ -142,6 +173,8 @@ def recommend_for_sku(sku_id: int, top_n: int = 5) -> dict[str, Any]:
         "h1_message": blocked_probe[0].block_reason if h1_block else "",
         "n_allowed": len(payload_results),
         "results": payload_results,
+        "n_withheld": len(withheld),
+        "withheld": withheld,
         "disclaimer": (
             "Pharmacist-reviewed inventory alternatives only — "
             "not automatic clinical prescribing. "

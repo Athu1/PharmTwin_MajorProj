@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-10-03T14:57:30.510054+00:00",
+  "created_at": "2026-10-03T15:02:29.474152+00:00",
   "note": "READ-ONLY originals. Inventory add/remove must never modify these files or medicines.source_system='reference' rows in MySQL.",
   "files": {
     "catalog_deduped.parquet": {
@@ -71,16 +71,32 @@
       "bytes": 491
     },
     "step3b_model_benchmark.csv": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "e3d743ff567f965f278643cab0232aaa64746ffafcf72b8ab14435ff559d8b62",
-      "bytes": 1033,
-      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step3b_model_benchmark.csv"
+      "bytes": 1033
     },
     "step3b_summary.json": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "c27af7eed38709f5c295286d599d2e66e999c01bc7b7561157415b05dbfaab3a",
-      "bytes": 3338,
-      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step3b_summary.json"
+      "bytes": 3338
+    },
+    "step6_classifier_models.csv": {
+      "status": "copied",
+      "sha256": "2474208aeadec528aa7bb87c520d4a850afb70e3b5d3dd95e32f18e0bda7c2f8",
+      "bytes": 340,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_classifier_models.csv"
+    },
+    "step6_threshold_sweep.csv": {
+      "status": "copied",
+      "sha256": "9cb2447b95b6f2587051bb9e3fd00d232625ed66598d4fd12520ae952ff544e9",
+      "bytes": 1914,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_threshold_sweep.csv"
+    },
+    "step6_summary.json": {
+      "status": "copied",
+      "sha256": "b43a5e6504c55edd38e483e88e914b69eb4c0c70a53894cfc83f1395b0136fce",
+      "bytes": 2967,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_summary.json"
     }
   }
 }

@@ -1,0 +1,3 @@
+model,roc_auc,pr_auc,baseline_pr_auc,threshold,true_positive,false_positive,false_negative,true_negative,precision,recall,f1,alerts_raised,alert_rate
+lightgbm_clf,0.7576,0.7134,0.4185,0.5,2554,167,31345,46934,0.9386,0.0753,0.1395,2721,0.0336
+logistic_regression,0.6803,0.6374,0.4185,0.5,1673,79,32226,47022,0.9549,0.0494,0.0939,1752,0.0216

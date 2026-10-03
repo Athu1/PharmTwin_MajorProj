@@ -1,0 +1,86 @@
+{
+  "task": "Will this medicine have unmet demand (a stockout) in the coming week?",
+  "protocol": {
+    "rows_train": 213000,
+    "rows_test": 81000,
+    "features": 29,
+    "split": "time-based, same as Step 3",
+    "seed": 42
+  },
+  "class_balance": {
+    "train_stockout_rate": 0.1319,
+    "test_stockout_rate": 0.4185
+  },
+  "models": [
+    {
+      "model": "lightgbm_clf",
+      "roc_auc": 0.7576,
+      "pr_auc": 0.7134,
+      "baseline_pr_auc": 0.4185,
+      "threshold": 0.5,
+      "true_positive": 2554,
+      "false_positive": 167,
+      "false_negative": 31345,
+      "true_negative": 46934,
+      "precision": 0.9386,
+      "recall": 0.0753,
+      "f1": 0.1395,
+      "alerts_raised": 2721,
+      "alert_rate": 0.0336
+    },
+    {
+      "model": "logistic_regression",
+      "roc_auc": 0.6803,
+      "pr_auc": 0.6374,
+      "baseline_pr_auc": 0.4185,
+      "threshold": 0.5,
+      "true_positive": 1673,
+      "false_positive": 79,
+      "false_negative": 32226,
+      "true_negative": 47022,
+      "precision": 0.9549,
+      "recall": 0.0494,
+      "f1": 0.0939,
+      "alerts_raised": 1752,
+      "alert_rate": 0.0216
+    }
+  ],
+  "best_model": "lightgbm_clf",
+  "cost_assumption": {
+    "cost_ratio_fn_over_fp": 5.0,
+    "meaning": "One missed stockout is treated as costing the same as 5 unnecessary reorders. A working assumption, not a measured figure \u2014 the sweep shows what other ratios would choose."
+  },
+  "threshold": {
+    "chosen": 0.01,
+    "chosen_scores": {
+      "threshold": 0.01,
+      "true_positive": 31305,
+      "false_positive": 33957,
+      "false_negative": 2594,
+      "true_negative": 13144,
+      "precision": 0.4797,
+      "recall": 0.9235,
+      "f1": 0.6314,
+      "alerts_raised": 65262,
+      "alert_rate": 0.8057
+    },
+    "default_0.5_scores": {
+      "threshold": 0.5,
+      "true_positive": 2554,
+      "false_positive": 167,
+      "false_negative": 31345,
+      "true_negative": 46934,
+      "precision": 0.9386,
+      "recall": 0.0753,
+      "f1": 0.1395,
+      "alerts_raised": 2721,
+      "alert_rate": 0.0336
+    }
+  },
+  "warnings": [
+    "DISTRIBUTION SHIFT: stockouts were 13.2% of training weeks but 41.9% of test weeks. The model's probabilities are calibrated for the wrong world, so the threshold below is compensating for drift rather than reflecting true risk. Retrain on a rolling recent window before trusting it operationally.",
+    "THRESHOLD AT GRID EDGE: the cost-optimal cut-off (0.01) is the lowest (or highest) value searched, which means the optimum lies outside the grid. Read it as 'alert on nearly everything', i.e. the model is not separating the classes well enough at this cost ratio \u2014 not as a tuned setting.",
+    "ALERT FATIGUE RISK: this cut-off raises an alert on 81% of SKU-weeks. Beyond roughly 20%, staff stop reading alerts and real recall collapses regardless of the measured recall."
+  ],
+  "data_note": "DEV SYNTHETIC data \u2014 not Bhagyashree Medical sales."
+}

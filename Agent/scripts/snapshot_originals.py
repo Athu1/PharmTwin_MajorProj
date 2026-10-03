@@ -35,6 +35,9 @@ FREEZE = [
     "step5_audit_counts.csv",
     "step3b_model_benchmark.csv",
     "step3b_summary.json",
+    "step6_classifier_models.csv",
+    "step6_threshold_sweep.csv",
+    "step6_summary.json",
 ]
 
 
