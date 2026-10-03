@@ -1,0 +1,2 @@
+n_queries,n_with_any_allowed,n_h1_query_blocked,n_candidates_considered,n_blocked_h1,n_blocked_aware,n_blocked_cdsco,n_blocked_habit,n_allowed_recommendations,n_explicit,n_tfidf,pct_queries_with_allowed_sub,notes
+200,157,34,678,8,6,0,0,664,36,628,78.5,TF-IDF + cosine on composition/chemical/therapeutic text; explicit substitute0-4 preferred when in-stock; Schedule H1 hard-block; WHO AWaRe Watch/Reserve blocked for OTC auto-path; CDSCO banned FDC + Is_discontinued + Habit Forming gated.

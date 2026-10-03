@@ -1,0 +1,150 @@
+{
+  "zero_inflation": {
+    "n_rows": 318000,
+    "pct_zero": 55.86352201257861,
+    "mean_demand": 2.302880503144654,
+    "mean_nonzero": 5.217635407612181,
+    "n_skus": 3000,
+    "n_weeks": 106
+  },
+  "train_weeks": 79,
+  "test_weeks": 27,
+  "n_skus_evaluated": 2945,
+  "demand_pattern_counts": {
+    "intermittent": 1685,
+    "lumpy": 753,
+    "erratic": 303,
+    "smooth": 204
+  },
+  "methods": [
+    "croston",
+    "sba",
+    "tsb",
+    "ma"
+  ],
+  "metrics_all": [
+    {
+      "slice": "all",
+      "method": "ma",
+      "n_skus": 2945,
+      "wmape_mean": 1.2581009398818928,
+      "wmape_demand_weighted": 0.8345791783321275,
+      "global_wmape": 0.8347587477848731,
+      "mase_mean": 0.9653642094314548,
+      "mase_median": 0.869949494949495,
+      "mae_mean": 2.002350185499591,
+      "bias_mean": -0.0971687731874489,
+      "mean_pred": 2.3015484499779917,
+      "mean_actual": 2.398717223165441,
+      "rank_in_slice": 1.0
+    },
+    {
+      "slice": "all",
+      "method": "tsb",
+      "n_skus": 2945,
+      "wmape_mean": 1.295268548246347,
+      "wmape_demand_weighted": 0.8501413275503639,
+      "global_wmape": 0.8504917721997525,
+      "mase_mean": 0.9629263559113381,
+      "mase_median": 0.8764029022124651,
+      "mae_mean": 2.0400892621360445,
+      "bias_mean": -0.15327464501761304,
+      "mean_pred": 2.245442578147827,
+      "mean_actual": 2.398717223165441,
+      "rank_in_slice": 2.0
+    },
+    {
+      "slice": "all",
+      "method": "sba",
+      "n_skus": 2945,
+      "wmape_mean": 1.3634961635058416,
+      "wmape_demand_weighted": 0.8525046978444936,
+      "global_wmape": 0.8538306204402529,
+      "mase_mean": 0.9689014340929374,
+      "mase_median": 0.880965649543253,
+      "mae_mean": 2.0480982149160685,
+      "bias_mean": -0.24019328462490663,
+      "mean_pred": 2.158523938540534,
+      "mean_actual": 2.398717223165441,
+      "rank_in_slice": 3.0
+    },
+    {
+      "slice": "all",
+      "method": "croston",
+      "n_skus": 2945,
+      "wmape_mean": 1.3913599133824275,
+      "wmape_demand_weighted": 0.8606145062570008,
+      "global_wmape": 0.8620102142525369,
+      "mase_mean": 0.9827583593339574,
+      "mase_median": 0.8902756899309683,
+      "mae_mean": 2.0677187474720915,
+      "bias_mean": -0.12658676154382578,
+      "mean_pred": 2.272130461621615,
+      "mean_actual": 2.398717223165441,
+      "rank_in_slice": 4.0
+    }
+  ],
+  "metrics_intermittent_slice": [
+    {
+      "slice": "intermittent",
+      "method": "sba",
+      "n_skus": 1685,
+      "wmape_mean": 1.6116850454526879,
+      "wmape_demand_weighted": 1.1687475076836589,
+      "global_wmape": 1.1727663982805183,
+      "mase_mean": 0.9673517437531773,
+      "mase_median": 0.8783243072347294,
+      "mae_mean": 1.2741251734874424,
+      "bias_mean": -0.03991833278838329,
+      "mean_pred": 1.0465087471105068,
+      "mean_actual": 1.08642707989889,
+      "rank_in_slice": 1.0
+    },
+    {
+      "slice": "intermittent",
+      "method": "tsb",
+      "n_skus": 1685,
+      "wmape_mean": 1.518379122445102,
+      "wmape_demand_weighted": 1.1749309790090112,
+      "global_wmape": 1.1759906521340275,
+      "mase_mean": 0.962929097536952,
+      "mase_median": 0.8753833248697609,
+      "mae_mean": 1.277628090186363,
+      "bias_mean": -0.014421647130119402,
+      "mean_pred": 1.0720054327687705,
+      "mean_actual": 1.08642707989889,
+      "rank_in_slice": 2.0
+    },
+    {
+      "slice": "intermittent",
+      "method": "croston",
+      "n_skus": 1685,
+      "wmape_mean": 1.64870202364494,
+      "wmape_demand_weighted": 1.1860186237411412,
+      "global_wmape": 1.1902490348957302,
+      "mase_mean": 0.9841127238034455,
+      "mase_median": 0.8907637282132952,
+      "mae_mean": 1.2931187833342401,
+      "bias_mean": 0.015161074954275013,
+      "mean_pred": 1.101588154853165,
+      "mean_actual": 1.08642707989889,
+      "rank_in_slice": 3.0
+    },
+    {
+      "slice": "intermittent",
+      "method": "ma",
+      "n_skus": 1685,
+      "wmape_mean": 1.473844821965621,
+      "wmape_demand_weighted": 1.1932572278309423,
+      "global_wmape": 1.1938262488113784,
+      "mase_mean": 0.9806754731666333,
+      "mase_median": 0.8834325396825397,
+      "mae_mean": 1.2970051654027916,
+      "bias_mean": 0.0011814485108253704,
+      "mean_pred": 1.0876085284097154,
+      "mean_actual": 1.08642707989889,
+      "rank_in_slice": 4.0
+    }
+  ],
+  "notes": "Evaluated with WMAPE and MASE only (MAPE excluded). Demand = qty + unmet_qty. Weekly aggregation. Rolling one-step-ahead. Demand patterns use Syntetos-Boylan ADI/CV2 cutoffs (1.32 / 0.49)."
+}
