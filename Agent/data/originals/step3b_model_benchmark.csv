@@ -1,0 +1,6 @@
+model,family,objective,global_wmape,mean_mase,global_mae,bias,blend_weight,notes,rank
+lightgbm_q50,Gradient-boosted trees,quantile (median),0.7139362349325916,0.775419067457639,1.6818310468665754,-0.7782560379411314,1.0,The production model; same settings as Step 3.,1
+stacked_mae,Ensemble,absolute-error blend on the simplex,0.7139362349325917,0.7754190674576393,1.6818310468665756,-0.7782560379411307,,Weights fitted on validation weeks only.,2
+xgboost_mae,Gradient-boosted trees,absolute error,0.7473179607440135,0.9237352748749644,1.760468914116635,-0.4604449865317637,0.0,Different boosting implementation and tree growth policy.,3
+random_forest,Bagged trees,squared error (mean),0.813465724604756,1.1563713476228041,1.9162942630741642,0.03823917676512556,0.0,Averages independent trees instead of correcting them in sequence.,4
+poisson_glm,Generalised linear model,Poisson deviance,0.9217686360737165,1.4843105954623594,2.17142516981647,-0.007574808044869208,0.0,Counts model; no interactions unless the features carry them.,5

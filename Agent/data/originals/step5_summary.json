@@ -1,0 +1,83 @@
+{
+  "n_queries": 200,
+  "n_with_any_allowed": 157,
+  "n_h1_query_blocked": 34,
+  "n_candidates_considered": 678,
+  "n_blocked_h1": 8,
+  "n_blocked_aware": 6,
+  "n_blocked_cdsco": 0,
+  "n_blocked_habit": 0,
+  "n_allowed_recommendations": 664,
+  "n_explicit": 36,
+  "n_tfidf": 628,
+  "pct_queries_with_allowed_sub": 78.5,
+  "aware_distribution": {
+    "NotAntibiotic": 2204,
+    "Watch": 624,
+    "Access": 151,
+    "Reserve": 21
+  },
+  "examples": [
+    {
+      "case": "respiratory_otc_ok",
+      "query_sku_id": 57808,
+      "query_name": "Cufrev DX Syrup",
+      "recommendations": [
+        {
+          "sku_id": 77572,
+          "name": "Eracof Expectorant",
+          "score": 1.0,
+          "source": "tfidf",
+          "aware": "NotAntibiotic"
+        },
+        {
+          "sku_id": 77267,
+          "name": "Enrex   Syrup",
+          "score": 1.0,
+          "source": "tfidf",
+          "aware": "NotAntibiotic"
+        },
+        {
+          "sku_id": 114304,
+          "name": "Jaycof-DX Syrup Raspberry",
+          "score": 1.0,
+          "source": "tfidf",
+          "aware": "NotAntibiotic"
+        }
+      ]
+    },
+    {
+      "case": "schedule_h1_block",
+      "query_sku_id": 133575,
+      "query_name": "Mahaflox 400 Tablet",
+      "block_reason": "Schedule H1 hard-block: automated substitution is not permitted. Requires a valid Registered Medical Practitioner (RMP) prescription. A separate Schedule H1 dispensing register must be maintained for three years.",
+      "recommendations": []
+    },
+    {
+      "case": "aware_watch_block",
+      "query_sku_id": 24217,
+      "query_name": "Aziray 100mg Suspension",
+      "blocked_examples": [
+        {
+          "sku_id": 251996,
+          "name": "Zutris 100mg Oral Suspension",
+          "aware": "Watch",
+          "reason": "WHO AWaRe 'Watch' \u2014 restricted from automated OTC substitution (antimicrobial stewardship)"
+        },
+        {
+          "sku_id": 4338,
+          "name": "Azone 500mg Tablet",
+          "aware": "Watch",
+          "reason": "WHO AWaRe 'Watch' \u2014 restricted from automated OTC substitution (antimicrobial stewardship)"
+        },
+        {
+          "sku_id": 15735,
+          "name": "Azigor 500mg Injection",
+          "aware": "Watch",
+          "reason": "WHO AWaRe 'Watch' \u2014 restricted from automated OTC substitution (antimicrobial stewardship)"
+        }
+      ]
+    }
+  ],
+  "notes": "TF-IDF + cosine on composition/chemical/therapeutic text; explicit substitute0-4 preferred when in-stock; Schedule H1 hard-block; WHO AWaRe Watch/Reserve blocked for OTC auto-path; CDSCO banned FDC + Is_discontinued + Habit Forming gated."
+}

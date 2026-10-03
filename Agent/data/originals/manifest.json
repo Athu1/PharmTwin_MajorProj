@@ -1,66 +1,102 @@
 {
-  "created_at": "2026-09-29T13:45:45.087571+00:00",
+  "created_at": "2026-10-03T15:02:29.474152+00:00",
   "note": "READ-ONLY originals. Inventory add/remove must never modify these files or medicines.source_system='reference' rows in MySQL.",
   "files": {
     "catalog_deduped.parquet": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "3b5d738f09a0a9b14a1ea33ca68c841d58719d37846800f08066716ab48de99d",
-      "bytes": 13323837,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\catalog_deduped.parquet"
+      "bytes": 13323837
     },
     "assortment_3k.csv": {
-      "status": "copied",
-      "sha256": "0b8f921c00d0734042091bc27d8ec625dd4cb92820a06dc886bfd3deda6af931",
-      "bytes": 1284354,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\assortment_3k.csv"
+      "status": "already_present",
+      "sha256": "ba9689601eafc9bd2fa8be16d2540d82393d185281bbca05a8a099ee58d60e02",
+      "bytes": 1281353
     },
     "batches_fefo.csv": {
-      "status": "copied",
-      "sha256": "28356f4630b8572f79cb25dc0bfb2d0d2f75cd50c59f62a69a1d6fd8b933be3e",
-      "bytes": 569538,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\batches_fefo.csv"
+      "status": "already_present",
+      "sha256": "3db70f0a6dc1668a16bfd3a3e2d9e9bb320b3dd114731bd461e2211aa8e45133",
+      "bytes": 560399
     },
     "covariates_navi_mumbai.csv": {
-      "status": "copied",
-      "sha256": "4b7a3de9f59ebc9ef3b6470aef851859db6f874eb4f2550802924ee4ee124a63",
-      "bytes": 58071,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\covariates_navi_mumbai.csv"
+      "status": "already_present",
+      "sha256": "739b3e6913b7eff5619299582e47e58a5e1a7ffb39e47cb2e28ca753cb15f09e",
+      "bytes": 57339
     },
     "transactions_synthetic.csv": {
-      "status": "copied",
-      "sha256": "bf16e5b39f49323e2e942dcf4c99b5eaf5ffa6b84d8ddba5619e8cbd17888993",
-      "bytes": 16640326,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\transactions_synthetic.csv"
+      "status": "already_present",
+      "sha256": "6920afed1e1b1c248d01103238afbbfdc39435384940cf5a5d6d683b79aa59be",
+      "bytes": 16385915
     },
     "step1_summary.json": {
-      "status": "copied",
-      "sha256": "5ff93a87cb80ca768c27c56ebe87ee7ab6c9fac4c78bff84b12f634cace7cc27",
-      "bytes": 285,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step1_summary.json"
+      "status": "missing_source"
+    },
+    "step2_summary.json": {
+      "status": "already_present",
+      "sha256": "0dfbd840df928db14f364687ec2da6f31182cda629d74149b22ef1acf623ae38",
+      "bytes": 4566
+    },
+    "step2_metrics_summary.csv": {
+      "status": "already_present",
+      "sha256": "ada0dd4d6a2c8fa28560852da7a087fb67564ef083f9350e031f142a89456fa6",
+      "bytes": 3957
     },
     "step3_forecasts_weekly.csv": {
-      "status": "copied",
-      "sha256": "ac621a2c321a69794e2fd59b9b3ca95ae78e9b5bd72edc6c1fd13c7327ff840b",
-      "bytes": 9548563,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step3_forecasts_weekly.csv"
+      "status": "already_present",
+      "sha256": "243159294830883aa52a3e33e2b22c000941f76332ff717927b2606ac5e9e252",
+      "bytes": 9467562
     },
     "step3_forecasts_weekly.parquet": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "88c2ebb49f86ca1898aa5d82058d520ff8f1477b5bddebb388cd47c9bdac07de",
-      "bytes": 2444103,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step3_forecasts_weekly.parquet"
+      "bytes": 2444103
     },
     "step4_safety_stock_params.csv": {
-      "status": "copied",
-      "sha256": "6867cab44b273fab8cef4d78bc4e6e3d9f64990dbc6ec4759e22c86aabce745c",
-      "bytes": 724171,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step4_safety_stock_params.csv"
+      "status": "already_present",
+      "sha256": "545ef266bce52b21bb9667008d26733565f3e5d8a0dad330f19cf8e0767bd30b",
+      "bytes": 721170
     },
     "step4_policy_comparison.csv": {
+      "status": "already_present",
+      "sha256": "c4c05787ffe660aca159dbb6f5f4d5446470eae2ecb24551d4bab6e0e94cc98f",
+      "bytes": 1141
+    },
+    "step5_summary.json": {
+      "status": "already_present",
+      "sha256": "306f5dbdd48211220627c32e5c85f256f6559c6f47a92043f3e1d0bff19f2fef",
+      "bytes": 2650
+    },
+    "step5_audit_counts.csv": {
+      "status": "already_present",
+      "sha256": "5b5187ee778f61f8f4766041295777d959f0b3f0e78962371ddd7125b38e491c",
+      "bytes": 491
+    },
+    "step3b_model_benchmark.csv": {
+      "status": "already_present",
+      "sha256": "e3d743ff567f965f278643cab0232aaa64746ffafcf72b8ab14435ff559d8b62",
+      "bytes": 1033
+    },
+    "step3b_summary.json": {
+      "status": "already_present",
+      "sha256": "c27af7eed38709f5c295286d599d2e66e999c01bc7b7561157415b05dbfaab3a",
+      "bytes": 3338
+    },
+    "step6_classifier_models.csv": {
       "status": "copied",
-      "sha256": "20d6d33e8cb1a17d679feac7fc1e45a5c1d0084f46576826d80d0b43552ed11c",
-      "bytes": 1146,
-      "source": "E:\\MajorProject_4th_Yr\\Agent\\data\\processed\\step4_policy_comparison.csv"
+      "sha256": "2474208aeadec528aa7bb87c520d4a850afb70e3b5d3dd95e32f18e0bda7c2f8",
+      "bytes": 340,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_classifier_models.csv"
+    },
+    "step6_threshold_sweep.csv": {
+      "status": "copied",
+      "sha256": "9cb2447b95b6f2587051bb9e3fd00d232625ed66598d4fd12520ae952ff544e9",
+      "bytes": 1914,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_threshold_sweep.csv"
+    },
+    "step6_summary.json": {
+      "status": "copied",
+      "sha256": "b43a5e6504c55edd38e483e88e914b69eb4c0c70a53894cfc83f1395b0136fce",
+      "bytes": 2967,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_summary.json"
     }
   }
 }

@@ -1913,6 +1913,18 @@ class PharmTwinApp(tk.Tk):
             rtree.column(c, width=w, anchor=tk.W)
         rtree.pack(fill=tk.BOTH, expand=True)
 
+        tk.Label(
+            right,
+            text="Not offered, and why (withheld)",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(8, 0))
+        wcols = ("name", "reason")
+        wtree = ttk.Treeview(right, columns=wcols, show="headings", height=5)
+        for c, w, h in (("name", 200, "Alternative"), ("reason", 420, "Why it was not offered")):
+            wtree.heading(c, text=h)
+            wtree.column(c, width=w, anchor=tk.W)
+        wtree.pack(fill=tk.BOTH, expand=False)
+
         disclaimer = tk.Label(
             self.page_host,
             text=(
@@ -1946,6 +1958,7 @@ class PharmTwinApp(tk.Tk):
         def run_rec(_event=None) -> None:
             sel = qtree.selection()
             rtree.delete(*rtree.get_children())
+            wtree.delete(*wtree.get_children())
             if not sel:
                 return
             sku = int(sel[0])
@@ -1971,9 +1984,17 @@ class PharmTwinApp(tk.Tk):
                 text=(
                     f"Asked for: {out.get('query_name')} (SKU {sku})\n"
                     f"Medicine group (therapeutic class): {out.get('query_class') or 'n/a'}\n"
-                    f"Alternatives in stock that pass the rules: {out.get('n_allowed', 0)}"
+                    f"Alternatives in stock that pass the rules: {out.get('n_allowed', 0)}\n"
+                    f"Withheld by a safety rule or out of stock: {out.get('n_withheld', 0)} "
+                    "(listed below with the reason)"
                 )
             )
+            for w in out.get("withheld", []):
+                wtree.insert(
+                    "",
+                    tk.END,
+                    values=(w.get("candidate_name"), w.get("block_reason") or "—"),
+                )
             for r in out.get("results", []):
                 rtree.insert(
                     "",

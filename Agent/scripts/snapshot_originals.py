@@ -24,10 +24,20 @@ FREEZE = [
     "covariates_navi_mumbai.csv",
     "transactions_synthetic.csv",
     "step1_summary.json",
+    # Model-comparison evidence (small summaries only; per-SKU detail stays local)
+    "step2_summary.json",
+    "step2_metrics_summary.csv",
     "step3_forecasts_weekly.csv",
     "step3_forecasts_weekly.parquet",
     "step4_safety_stock_params.csv",
     "step4_policy_comparison.csv",
+    "step5_summary.json",
+    "step5_audit_counts.csv",
+    "step3b_model_benchmark.csv",
+    "step3b_summary.json",
+    "step6_classifier_models.csv",
+    "step6_threshold_sweep.csv",
+    "step6_summary.json",
 ]
 
 
