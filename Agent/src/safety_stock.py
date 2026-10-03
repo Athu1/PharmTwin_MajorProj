@@ -110,3 +110,107 @@ def sku_stock_params_from_forecasts(
     g["reorder_point"] = rop
     g["order_up_to"] = rop + np.maximum(g["mu_weekly"] * lead_time, 1.0)
     return g
+
+def sku_params_from_cover_forecasts(
+    cover_forecasts: pd.DataFrame,
+    lead_time: float = 1.0,
+    review_period: float = 1.0,
+    service_level: float = 0.95,
+    as_of: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Reorder parameters from a model trained on the cover window itself (Step 3c).
+
+    The older `sku_stock_params_from_forecasts` averages every forecast week into one
+    number per medicine, then inflates it by sqrt(L + R). That does two things wrong:
+    it erases seasonality (a monsoon week and a dead week give the same reorder point),
+    and the sqrt assumes weekly demand is independent and identically distributed.
+
+    Here the model already predicts the TOTAL over the next L + R weeks, so:
+
+        mu_cover    = q50 of that total
+        sigma_cover = spread implied by (q95 - q50) and (q90 - q50)
+        SS          = Z x sigma_cover          <- no sqrt(L + R)
+        ROP         = mu_cover + SS
+
+    `as_of` picks the decision week; the default is each medicine's most recent
+    forecast, which is the one a live reorder decision would use.
+
+    Expects columns: sku_id, week_start, q50, q90, q95.
+    """
+    df = cover_forecasts.copy()
+    df["week_start"] = pd.to_datetime(df["week_start"])
+    if as_of is not None:
+        df = df[df["week_start"] <= pd.Timestamp(as_of)]
+    if df.empty:
+        raise ValueError("No cover forecasts available for the requested date.")
+
+    latest = (
+        df.sort_values("week_start")
+        .groupby("sku_id", as_index=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+    g = latest[["sku_id", "week_start", "q50", "q90", "q95"]].rename(
+        columns={"q50": "cover_q50", "q90": "cover_q90", "q95": "cover_q95"}
+    )
+
+    cover = float(lead_time + review_period)
+    g["sigma_cover"] = sigma_from_quantiles(
+        g["cover_q50"].to_numpy(), g["cover_q90"].to_numpy(), g["cover_q95"].to_numpy()
+    )
+    # Floor: a forecast whose quantiles collapse would otherwise carry zero buffer
+    g["sigma_cover"] = np.maximum(
+        g["sigma_cover"], 0.15 * np.maximum(g["cover_q50"].to_numpy(), 0.5)
+    )
+
+    z = z_from_service_level(service_level)
+    g["mu_cover"] = g["cover_q50"]
+    # Weekly rate kept so the simulator and the app can keep using one column name
+    g["mu_weekly"] = g["cover_q50"] / cover if cover else g["cover_q50"]
+    g["sigma_weekly"] = g["sigma_cover"] / np.sqrt(cover) if cover else g["sigma_cover"]
+    g["safety_stock"] = z * g["sigma_cover"]
+    g["reorder_point"] = g["mu_cover"] + g["safety_stock"]
+    g["order_up_to"] = g["reorder_point"] + np.maximum(
+        g["mu_weekly"] * lead_time, 1.0
+    )
+    g["lead_time_weeks"] = lead_time
+    g["review_period_weeks"] = review_period
+    g["service_level"] = service_level
+    g["z_score"] = z
+    g["method"] = "cover_window"
+    g["decision_week"] = g["week_start"]
+    return g.drop(columns=["week_start"])
+
+def cover_params_by_week(
+    cover_forecasts: pd.DataFrame,
+    lead_time: float = 1.0,
+    review_period: float = 1.0,
+    service_level: float = 0.95,
+) -> pd.DataFrame:
+    """Reorder point and order-up-to level for EVERY (medicine, week).
+
+    Same formula as `sku_params_from_cover_forecasts`, applied row by row instead of
+    collapsing to one decision week. This is the form the upgrade is actually about:
+    the level a medicine reorders at should move with the weeks it has to cover, so a
+    monsoon week and a quiet week no longer share a number.
+    """
+    df = cover_forecasts.copy()
+    df["week_start"] = pd.to_datetime(df["week_start"])
+    cover = float(lead_time + review_period)
+    z = z_from_service_level(service_level)
+
+    sigma = sigma_from_quantiles(
+        df["q50"].to_numpy(), df["q90"].to_numpy(), df["q95"].to_numpy()
+    )
+    sigma = np.maximum(sigma, 0.15 * np.maximum(df["q50"].to_numpy(), 0.5))
+    mu_cover = df["q50"].to_numpy(dtype=float)
+    mu_weekly = mu_cover / cover if cover else mu_cover
+
+    out = df[["sku_id", "week_start"]].copy()
+    out["mu_cover"] = mu_cover
+    out["mu_weekly"] = mu_weekly
+    out["sigma_cover"] = sigma
+    out["safety_stock"] = z * sigma
+    out["reorder_point"] = mu_cover + out["safety_stock"]
+    out["order_up_to"] = out["reorder_point"] + np.maximum(mu_weekly * lead_time, 1.0)
+    return out

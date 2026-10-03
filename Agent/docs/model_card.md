@@ -20,6 +20,8 @@ sponsor's export loads through `scripts/ingest_sales_export.py` without code cha
 | 4 | Random forest | Weekly demand | Bagged trees | **Yes** | same |
 | 5 | Poisson GLM | Weekly demand | Generalised linear model | **Yes** | same |
 | 6 | Blend of 1 + 3–5 | Weekly demand | Stacking ensemble | **Yes** (weights) | same |
+| 6b | LightGBM multi-horizon x3 quantiles (h=1..4) | Demand 1-4 weeks ahead | Gradient-boosted trees | **Yes** | `src/forecast_horizons.py` |
+| 6c | LightGBM cover-window x3 quantiles | **Total** demand over the next L+R weeks | Gradient-boosted trees | **Yes** | same |
 | 7 | Croston, SBA, TSB, moving average | Weekly demand | Statistical smoothing | Fitted per medicine | `src/forecast_intermittent.py` |
 | 8 | TF-IDF + cosine similarity | Substitute shortlist | Text similarity | Vocabulary fitted | `src/substitutes_nlp.py` |
 | 9 | Safety stock / reorder point | Order decision | Formula, not learned | No | `src/safety_stock.py` |
@@ -219,9 +221,59 @@ Raw numbers: `data/processed/step3b_model_benchmark.csv` and `step2_metrics_summ
 
 ---
 
+## 7b. The reorder point now uses the forecast (Step 3c)
+
+The original Step 4 collapsed all 27 forecast weeks into one mean per medicine and
+scaled safety stock by sqrt(L + R). Two defects:
+
+1. **Quantiles do not add.** (mean weekly q50) x (L+R) is not the median of the L+R week
+   total. For zero-inflated demand the latter is larger, so the old reorder point was
+   systematically too low.
+2. **sqrt(L + R) assumes weekly demand is independent and identically distributed** —
+   which is exactly what seasonality is not. And averaging across weeks erased the
+   seasonality the model had just learned.
+
+Step 3c trains a model whose target *is* the L+R week total, so `SS = Z x sigma_cover`
+with no sqrt term, and the level is recomputed for every week.
+
+| Target | WMAPE | q95 coverage (nominal 0.95) |
+|---|---|---|
+| 1 week ahead | 0.710 | 0.948 |
+| 2 weeks ahead | 0.721 | 0.948 |
+| 3 weeks ahead | 0.715 | 0.945 |
+| 4 weeks ahead | 0.718 | 0.947 |
+| **2-week total (cover)** | **0.578** | 0.947 |
+
+Two findings: accuracy barely decays with horizon (the signal is base rate and season,
+not last week's momentum), so multi-week ordering is viable; and the window total is far
+more predictable than any single week, because summing cancels noise.
+
+Simulation, same policy, stock, weeks and seed — only the reorder point differs
+(`scripts/run_reorder_compare.py`):
+
+| Reorder point | Fill rate | Unmet units | Units ordered | Stockout SKU-weeks |
+|---|---|---|---|---|
+| Old flat average | 96.59% | 6,511 | 196,902 | 1,518 |
+| New cover model, applied statically | 94.00% | 11,440 | 201,169 | 2,316 |
+| **New cover model, recomputed weekly** | **96.72%** | **6,257** | 209,482 | **1,474** |
+
+The middle row is the important one. The better target applied as a *fixed* level is
+clearly worse; the same numbers recomputed each week are best. A 2.7 point swing from
+timing alone is the evidence that averaging the forecast away costs real fill rate.
+
+Being honest about the size of the win: against the old method the gain is +0.13 points
+of fill rate for 6.4% more units ordered. The stronger argument for adopting it is
+correctness, not that margin — the old arithmetic was wrong, and its under-ordering is
+visible in the higher unmet figure. Holding cost cannot be judged here because the
+simulator's waste figure is dominated by the flawed opening stock.
+
+Opt in with `py -3 scripts/load_analytics.py --use-cover-params`; without the flag the
+original Step 4 parameters are used, so the change is reversible.
+
 ## 8. Known limitations
 
-1. One week ahead only.
+1. ~~One week ahead only.~~ Step 3c adds direct 1-4 week horizons and a cover-window
+   model. Step 3 (which feeds the app's Forecasts page) is still one week ahead.
 2. Weather features cannot be validated on synthetic data — the data was generated with
    weather effects, so recovering them is partly circular. The no-weather ablation exists
    for comparison; only sponsor data can settle it.

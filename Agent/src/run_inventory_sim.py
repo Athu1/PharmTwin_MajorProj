@@ -120,8 +120,15 @@ def simulate_policy(
     lead_time_weeks: int = 1,
     seed: int = 42,
     show_progress: bool = True,
+    weekly_params: dict[tuple[int, pd.Timestamp], dict] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Run weekly inventory simulation for one policy (cloned state — never mutates caller)."""
+    """Run weekly inventory simulation for one policy (cloned state — never mutates caller).
+
+    `weekly_params` optionally supplies a reorder point and order-up-to level per
+    (sku_id, week) instead of one fixed pair per SKU. That is what a forecast-driven
+    reorder point needs: the level should move with the weeks it is covering. Any
+    (sku, week) absent from the mapping falls back to the static row in `params`.
+    """
     rng = np.random.default_rng(seed)
     states = _clone_states(base_states)
     param_map = params.set_index("sku_id").to_dict(orient="index")
@@ -203,8 +210,13 @@ def simulate_policy(
             oh = on_hand(state, week)
             inventory_position = oh + state.on_order
             if use_ss:
-                target = float(p["order_up_to"])
-                rop = float(p["reorder_point"])
+                wp = weekly_params.get((sku_id, week)) if weekly_params else None
+                if wp is not None:
+                    target = float(wp["order_up_to"])
+                    rop = float(wp["reorder_point"])
+                else:
+                    target = float(p["order_up_to"])
+                    rop = float(p["reorder_point"])
             else:
                 target = max(float(p["mu_weekly"]) * 4.0, 2.0)
                 rop = max(float(p["mu_weekly"]) * 2.0, 1.0)

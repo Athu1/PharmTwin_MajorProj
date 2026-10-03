@@ -1,0 +1,13 @@
+{
+  "policy": "fefo_ss",
+  "n_skus": 3000,
+  "fill_rate_old": 0.9658775869568635,
+  "fill_rate_new": 0.967208733157594,
+  "fill_rate_change_pp": 0.13,
+  "units_ordered_old": 196902.0,
+  "units_ordered_new": 209482.0,
+  "units_ordered_change_pct": 6.39,
+  "mean_safety_stock_old": 7.60309450665526,
+  "mean_safety_stock_new": 7.476909903927997,
+  "data_note": "DEV SYNTHETIC data \u2014 not Bhagyashree Medical sales."
+}

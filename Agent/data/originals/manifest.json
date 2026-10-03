@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-10-03T15:02:29.474152+00:00",
+  "created_at": "2026-10-03T17:56:54.524051+00:00",
   "note": "READ-ONLY originals. Inventory add/remove must never modify these files or medicines.source_system='reference' rows in MySQL.",
   "files": {
     "catalog_deduped.parquet": {
@@ -81,22 +81,43 @@
       "bytes": 3338
     },
     "step6_classifier_models.csv": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "2474208aeadec528aa7bb87c520d4a850afb70e3b5d3dd95e32f18e0bda7c2f8",
-      "bytes": 340,
-      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_classifier_models.csv"
+      "bytes": 340
     },
     "step6_threshold_sweep.csv": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "9cb2447b95b6f2587051bb9e3fd00d232625ed66598d4fd12520ae952ff544e9",
-      "bytes": 1914,
-      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_threshold_sweep.csv"
+      "bytes": 1914
     },
     "step6_summary.json": {
-      "status": "copied",
+      "status": "already_present",
       "sha256": "b43a5e6504c55edd38e483e88e914b69eb4c0c70a53894cfc83f1395b0136fce",
-      "bytes": 2967,
-      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step6_summary.json"
+      "bytes": 2967
+    },
+    "step3c_horizon_metrics.csv": {
+      "status": "copied",
+      "sha256": "d991f961bd88e8c6553ddc4ecf2ea92464cf0ec030a4d9ba1927a35370fb5674",
+      "bytes": 390,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step3c_horizon_metrics.csv"
+    },
+    "step3c_summary.json": {
+      "status": "copied",
+      "sha256": "cac6aa209fd850c9123c6c19603b2f20036b3c0369dcd69855a668e8607a8009",
+      "bytes": 1817,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step3c_summary.json"
+    },
+    "step4b_reorder_comparison.csv": {
+      "status": "copied",
+      "sha256": "2f041404e3a0b1b8d23cc2e672f3f134e5eedf010335016d4fa027db575c3426",
+      "bytes": 559,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step4b_reorder_comparison.csv"
+    },
+    "step4b_reorder_comparison.json": {
+      "status": "copied",
+      "sha256": "c66e9decb9d863e406e5bbd5000d2ac7e3583175ef6a3aa4415dc8918ed9da92",
+      "bytes": 419,
+      "source": "/home/user/PharmTwin_MajorProj/Agent/data/processed/step4b_reorder_comparison.json"
     }
   }
 }
