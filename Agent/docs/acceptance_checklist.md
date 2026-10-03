@@ -37,6 +37,7 @@ Exit code **0** = required checks green (demo-ready).
 | G02 | Selling more than is in stock never makes stock negative; the shortfall is saved as a lost sale (`unmet_qty`) |
 | G03 | "What to order" updates live: sale → REORDER, purchase → HOLD |
 | G04 | Invalid actions are refused: correction without a reason, receiving expired stock, strict oversell |
+| G06 | Editing a batch expiry changes which batch is sold first; a bulk batch edit that breaks a rule saves nothing |
 | G05 | Removing a medicine that was sold keeps its sales history (soft delete, `is_active = 0`) |
 
 F01–F03 and G01–G05 add and remove temporary pharmacy SKUs and write twin snapshots (self-cleaning). Skip them with `--skip-write-checks`.
@@ -51,7 +52,7 @@ F01–F03 and G01–G05 add and remove temporary pharmacy SKUs and write twin sn
 
 1. `py -3 scripts/run_desktop.py`
 2. **Overview** — catalog ~254k, stocked count, synthetic banner, **Twin status** (IN SYNC / STALE); after an inventory edit it shows STALE until **Refresh twin snapshot**
-3. **Stock (Inventory)** — search + FEFO batches; **Add medicine**; **Edit medicine…** (or double-click a row); Remove medicine/batch  
+3. **Stock (Inventory)** — search + FEFO batches; **Add medicine**; **Edit medicine…** / **Edit batch…** (or double-click a row; Ctrl/Shift+click several rows to edit them together); Remove medicine/batch  
    - Reference 250k catalog stays read-only (`data/originals/` snapshot)  
    - **Daily work** row: select a medicine → **Sell…** (shows which batches, earliest expiry first) → confirm; **Receive stock (purchase)…**; select a batch → **Customer return…**, **Return to supplier…**, **Correct quantity (adjust)…** (reason required), **Write off expired batch** / **Write off ALL expired**  
    - After a sale, **What to order** for that medicine changes immediately; Overview shows STALE
