@@ -237,6 +237,16 @@ Raw numbers: `data/processed/step3b_model_benchmark.csv` and `step2_metrics_summ
 
 ## 9. Reproducing
 
+Install the requirements first — the benchmark needs `xgboost` and `scipy`, which the
+earlier steps do not:
+
+```powershell
+py -3 -m pip install -r requirements.txt
+```
+
+If a library is missing the benchmark reports that family as not benchmarked and
+continues with the rest, rather than failing.
+
 ```powershell
 py -3 scripts/run_step1.py --n-skus 3000   # data + covariates
 py -3 scripts/run_step2.py                 # Croston / SBA / TSB / MA baselines

@@ -220,18 +220,34 @@ def run_benchmark(
     X_fit, y_fit = fit_df[features], fit_df["demand"].to_numpy(dtype=float)
     X_valid, X_test = valid_df[features], test_df[features]
 
-    specs = model_specs()
+    all_specs = model_specs()
+    specs: list[ModelSpec] = []
+    skipped: list[dict[str, str]] = []
     valid_preds: dict[str, np.ndarray] = {}
     test_preds: dict[str, np.ndarray] = {}
-    for spec in specs:
+    for spec in all_specs:
         print(f"Training {spec.name} ({spec.family}, {spec.objective})...")
-        model = spec.build(seed)
+        try:
+            model = spec.build(seed)
+        except ImportError as exc:
+            # A missing optional library must not kill the whole benchmark —
+            # report the gap and carry on with the families that are installed.
+            package = str(exc).split("'")[1] if "'" in str(exc) else str(exc)
+            print(f"  SKIPPED: {package} is not installed (pip install {package})")
+            skipped.append({"model": spec.name, "reason": f"{package} not installed"})
+            continue
         model.fit(X_fit, y_fit)
         spec.fitted = model
         # Demand cannot be negative; clip like the production model does
         valid_preds[spec.name] = np.clip(model.predict(X_valid), 0.0, None)
         test_preds[spec.name] = np.clip(model.predict(X_test), 0.0, None)
+        specs.append(spec)
 
+    if not specs:
+        raise SystemExit(
+            "No model could be trained — install the requirements first:\n"
+            "  py -3 -m pip install -r requirements.txt"
+        )
     names = [s.name for s in specs]
     P_valid = np.column_stack([valid_preds[n] for n in names])
     P_test = np.column_stack([test_preds[n] for n in names])
@@ -283,6 +299,7 @@ def run_benchmark(
             "seed": seed,
         },
         "results": summary.to_dict(orient="records"),
+        "skipped_models": skipped,
         "blend_weights": blend,
         "metric_note": (
             "WMAPE and MASE only (never MAPE: many weeks have zero demand). "
@@ -294,6 +311,11 @@ def run_benchmark(
     summary_json = out / "step3b_summary.json"
     summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
+    if skipped:
+        print(
+            "\nNot benchmarked (library missing): "
+            + ", ".join(f"{s['model']} ({s['reason']})" for s in skipped)
+        )
     print("\nBenchmark (lower WMAPE is better):")
     print(
         summary[["rank", "model", "family", "global_wmape", "mean_mase", "blend_weight"]]
