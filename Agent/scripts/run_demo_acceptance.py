@@ -283,6 +283,7 @@ def _check_inventory_crud(report: Report) -> None:
         add_medicine_with_lot,
         remove_medicine,
         search_reference_catalog,
+        update_medicine,
     )
     from services.twin import check_twin_stale, refresh_twin_snapshot
 
@@ -317,6 +318,32 @@ def _check_inventory_crud(report: Report) -> None:
             clone_from_medicine_id=int(refs[0]["medicine_id"]) if refs else None,
         )
         added_id = int(out["medicine_id"])
+
+        # F04: edit details; unit change refused while stock exists; reference edit refused
+        edit = update_medicine(
+            added_id, name="ACCEPTANCE TEMP SKU (edited)", form_type="TABLET",
+            qty_unit="TABLETS", manufacturer_name="Acceptance Labs", unit_mrp=12.5,
+        )
+        unit_blocked = ref_blocked = False
+        try:
+            update_medicine(added_id, name="x", form_type="SYRUP", qty_unit="ML")
+        except InventoryGuardError:
+            unit_blocked = True
+        if refs:
+            try:
+                update_medicine(int(refs[0]["medicine_id"]), name="x", form_type="TABLET",
+                                qty_unit="TABLETS")
+            except InventoryGuardError:
+                ref_blocked = True
+        report.add(
+            "F04",
+            "Edit medicine details (audited); unit locked with stock; reference read-only",
+            set(edit["changes"]) == {"name", "manufacturer", "unit_mrp"}
+            and unit_blocked and ref_blocked,
+            f"changed={sorted(edit['changes'])}, unit_blocked={unit_blocked}, "
+            f"reference_blocked={ref_blocked}",
+        )
+
         remove_medicine(added_id)
         added_id = None
         stale_steps.append(check_twin_stale()["is_stale"])  # expect True

@@ -23,9 +23,11 @@ from services.inventory_write import (
     InventoryGuardError,
     add_medicine_with_lot,
     count_by_source,
+    get_medicine_details,
     remove_lot,
     remove_medicine,
     search_reference_catalog,
+    update_medicine,
 )
 from services.recommendations import list_recommendations, recommendation_counts
 from services.stock_ops import (
@@ -495,6 +497,23 @@ class PharmTwinApp(tk.Tk):
         tk.Button(top, text="Add medicine…", command=lambda: self._dialog_add_medicine(on_done=load_meds)).pack(
             side=tk.LEFT, padx=4
         )
+        def do_edit_med(_event=None) -> None:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("Edit medicine", "Select a medicine in the list first.")
+                return
+            mid = int(sel[0])
+
+            def after_save() -> None:
+                load_meds()
+                if tree.exists(str(mid)):
+                    tree.selection_set(str(mid))
+                    on_select()
+
+            self._dialog_edit_medicine(mid, after_save)
+
+        tk.Button(top, text="Edit medicine…", command=do_edit_med).pack(side=tk.LEFT, padx=4)
+        tree.bind("<Double-1>", do_edit_med)
         tk.Button(top, text="Remove medicine", command=do_remove_med).pack(side=tk.LEFT, padx=4)
         tk.Button(top, text="Remove batch (lot)", command=do_remove_lot).pack(side=tk.LEFT, padx=4)
 
@@ -783,6 +802,123 @@ class PharmTwinApp(tk.Tk):
 
         tk.Button(win, text="Save", command=save).pack(side=tk.RIGHT, padx=10, pady=10)
         tk.Button(win, text="Cancel", command=win.destroy).pack(side=tk.LEFT, padx=10, pady=10)
+
+    def _dialog_edit_medicine(self, medicine_id: int, on_done=None) -> None:
+        try:
+            med = get_medicine_details(medicine_id)
+        except (InventoryGuardError, StockError) as exc:
+            messagebox.showwarning("Cannot edit", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Edit medicine", str(exc))
+            return
+
+        win = tk.Toplevel(self)
+        win.title(f"Edit medicine — code {med['sku_code'] or medicine_id}")
+        win.geometry("560x400")
+        win.transient(self)
+        win.grab_set()
+        stock = med["stock_on_hand"]
+        tk.Label(
+            win,
+            text=(
+                f"Entry type: {plain(SOURCE, med['source_system'])} · "
+                f"In stock now: {stock:.0f} {med['qty_unit']}\n"
+                "Only this shop's stock list changes — the India reference list "
+                "(reference catalog) is not touched. Every change is saved in the audit trail."
+            ),
+            justify=tk.LEFT,
+            anchor="w",
+            wraplength=520,
+            fg="#555555",
+        ).pack(fill=tk.X, padx=10, pady=(10, 6))
+
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+        form.columnconfigure(1, weight=1)
+        v = {
+            "name": tk.StringVar(value=med["name"]),
+            "form_type": tk.StringVar(value=med["form_type"]),
+            "qty_unit": tk.StringVar(value=med["qty_unit"]),
+            "manufacturer": tk.StringVar(value=med["manufacturer_name"]),
+            "pack": tk.StringVar(value=med["pack_size_label"]),
+            "mrp": tk.StringVar(
+                value="" if med["unit_mrp"] is None else f"{float(med['unit_mrp']):.2f}"
+            ),
+        }
+
+        def row(r: int, label: str, widget) -> None:
+            tk.Label(form, text=label, anchor="w", width=22).grid(row=r, column=0, sticky="w", pady=3)
+            widget.grid(row=r, column=1, sticky="ew", padx=6, pady=3)
+
+        row(0, "Medicine name", tk.Entry(form, textvariable=v["name"], width=44))
+        row(1, "Form (tablet, syrup…)", ttk.Combobox(
+            form, textvariable=v["form_type"], values=list(FORM_TYPES), state="readonly", width=20
+        ))
+        unit_box = ttk.Combobox(
+            form, textvariable=v["qty_unit"], values=list(QTY_UNITS), state="readonly", width=20
+        )
+        row(2, "Counted in (unit)", unit_box)
+        if stock > 0:
+            unit_box.config(state="disabled")
+            tk.Label(
+                form,
+                text="Unit locked while stock exists (quantities would be misread).",
+                fg="#7a3e00",
+                anchor="w",
+            ).grid(row=3, column=1, sticky="w", padx=6)
+        row(4, "Manufacturer", tk.Entry(form, textvariable=v["manufacturer"], width=36))
+        row(5, "Pack size (e.g. 10 tablets)", tk.Entry(form, textvariable=v["pack"], width=24))
+        row(6, "MRP (₹, optional)", tk.Entry(form, textvariable=v["mrp"], width=12))
+
+        def save() -> None:
+            mrp_raw = v["mrp"].get().strip()
+            try:
+                mrp = float(mrp_raw) if mrp_raw else None
+            except ValueError:
+                messagebox.showwarning("Not saved", "MRP must be a number.", parent=win)
+                return
+            try:
+                out = update_medicine(
+                    medicine_id,
+                    name=v["name"].get(),
+                    form_type=v["form_type"].get(),
+                    qty_unit=v["qty_unit"].get(),
+                    manufacturer_name=v["manufacturer"].get(),
+                    pack_size_label=v["pack"].get(),
+                    unit_mrp=mrp,
+                )
+            except (InventoryGuardError, ValueError) as exc:
+                messagebox.showwarning("Not saved", str(exc), parent=win)
+                return
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror("Error — nothing saved", str(exc), parent=win)
+                return
+            if not out["changes"]:
+                messagebox.showinfo("No changes", "Nothing was changed.", parent=win)
+                return
+            labels = {
+                "name": "Name", "form_type": "Form", "qty_unit": "Unit",
+                "manufacturer": "Manufacturer", "pack_size_label": "Pack size", "unit_mrp": "MRP",
+            }
+            lines = [
+                f"{labels.get(k, k)}: {c['old'] or '—'} → {c['new'] or '—'}"
+                for k, c in out["changes"].items()
+            ]
+            messagebox.showinfo(
+                "Saved",
+                "Changes saved (audit: UPDATE_MEDICINE):\n\n" + "\n".join(lines)
+                + "\n\nShop summary is now out of date until you click 'Update shop snapshot'.",
+                parent=win,
+            )
+            win.destroy()
+            if on_done:
+                on_done()
+
+        btns = tk.Frame(win)
+        btns.pack(fill=tk.X, padx=10, pady=12, side=tk.BOTTOM)
+        tk.Button(btns, text="Save changes", command=save).pack(side=tk.RIGHT)
+        tk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.LEFT)
 
     def _dialog_add_medicine(self, on_done=None) -> None:
         win = tk.Toplevel(self)

@@ -32,6 +32,7 @@ Exit code **0** = required checks green (demo-ready).
 | F02 | Deleting a reference catalog medicine is blocked (`InventoryGuardError`) |
 | F03 | Twin stale detection: refresh → not stale → CRUD → stale → refresh → not stale |
 
+| F04 | Editing a medicine saves name / form / manufacturer / pack / MRP with an audit row; unit change refused while stock exists; reference catalog edit refused |
 | G01 | A sale takes stock from the earliest-expiry batch first (FEFO) |
 | G02 | Selling more than is in stock never makes stock negative; the shortfall is saved as a lost sale (`unmet_qty`) |
 | G03 | "What to order" updates live: sale → REORDER, purchase → HOLD |
@@ -50,7 +51,7 @@ F01–F03 and G01–G05 add and remove temporary pharmacy SKUs and write twin sn
 
 1. `py -3 scripts/run_desktop.py`
 2. **Overview** — catalog ~254k, stocked count, synthetic banner, **Twin status** (IN SYNC / STALE); after an inventory edit it shows STALE until **Refresh twin snapshot**
-3. **Stock (Inventory)** — search + FEFO batches; **Add medicine**; Remove medicine/batch  
+3. **Stock (Inventory)** — search + FEFO batches; **Add medicine**; **Edit medicine…** (or double-click a row); Remove medicine/batch  
    - Reference 250k catalog stays read-only (`data/originals/` snapshot)  
    - **Daily work** row: select a medicine → **Sell…** (shows which batches, earliest expiry first) → confirm; **Receive stock (purchase)…**; select a batch → **Customer return…**, **Return to supplier…**, **Correct quantity (adjust)…** (reason required), **Write off expired batch** / **Write off ALL expired**  
    - After a sale, **What to order** for that medicine changes immediately; Overview shows STALE
