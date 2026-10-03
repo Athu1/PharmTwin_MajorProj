@@ -22,6 +22,7 @@ from services.inventory_write import (
     QTY_UNITS,
     InventoryGuardError,
     add_medicine_with_lot,
+    bulk_update_medicines,
     count_by_source,
     get_medicine_details,
     remove_lot,
@@ -33,11 +34,14 @@ from services.recommendations import list_recommendations, recommendation_counts
 from services.stock_ops import (
     StockError,
     adjust_batch_qty,
+    bulk_update_batches,
     customer_return,
+    get_batch_details,
     post_sale,
     receive_purchase,
     return_to_supplier,
     suggest_fefo,
+    update_batch,
     write_off_expired,
 )
 from services.simulations import (
@@ -502,6 +506,11 @@ class PharmTwinApp(tk.Tk):
             if not sel:
                 messagebox.showinfo("Edit medicine", "Select a medicine in the list first.")
                 return
+            if len(sel) > 1:
+                ids = [int(i) for i in sel]
+                names = [tree.item(i, "values")[1] for i in sel]
+                self._dialog_bulk_edit_medicines(ids, names, refresh_both)
+                return
             mid = int(sel[0])
 
             def after_save() -> None:
@@ -577,7 +586,29 @@ class PharmTwinApp(tk.Tk):
                                lambda o: f"Wrote off {o['units']:,.0f} units from "
                                f"{o['batches']:,} expired batches.")
 
+        def do_edit_batch(_event=None) -> None:
+            sel = btree.selection()
+            if not sel:
+                messagebox.showinfo("Edit batch", "Select a batch in the lower list first.")
+                return
+            if len(sel) > 1:
+                ids = [int(i) for i in sel]
+                nos = [btree.item(i, "values")[1] for i in sel]
+                self._dialog_bulk_edit_batches(ids, nos, refresh_both)
+            else:
+                self._dialog_edit_batch(int(sel[0]), refresh_both)
+
+        btree.bind("<Double-1>", do_edit_batch)
+        tk.Label(
+            batch_frame,
+            text="Tip: double-click a medicine or batch to edit it. Ctrl/Shift+click to "
+            "select several, then 'Edit medicine…' / 'Edit batch…' to change them together.",
+            fg="#555555",
+            anchor="w",
+        ).pack(side=tk.BOTTOM, fill=tk.X)
+
         for text, cmd in (
+            ("Edit batch…", do_edit_batch),
             ("Sell…", do_sell),
             ("Receive stock (purchase)…", do_receive),
             ("Customer return…", lambda: do_batch_op("return_in")),
@@ -802,6 +833,221 @@ class PharmTwinApp(tk.Tk):
 
         tk.Button(win, text="Save", command=save).pack(side=tk.RIGHT, padx=10, pady=10)
         tk.Button(win, text="Cancel", command=win.destroy).pack(side=tk.LEFT, padx=10, pady=10)
+
+    def _bulk_form(self, title: str, intro: str, specs, on_apply, reason_label=None):
+        """Generic 'change these fields on all selected' dialog.
+
+        specs: list of (key, label, kind, values) with kind 'entry' or 'combo'.
+        on_apply(fields: dict, reason: str) -> message; raises on refusal.
+        """
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("620x460")
+        win.transient(self)
+        win.grab_set()
+        tk.Label(win, text=intro, justify=tk.LEFT, anchor="w", wraplength=580).pack(
+            fill=tk.X, padx=10, pady=(10, 6)
+        )
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+        tk.Label(form, text="Change?", font=("Segoe UI", 9, "bold")).grid(row=0, column=0)
+        widgets = {}
+        for r, (key, label, kind, values) in enumerate(specs, start=1):
+            on = tk.BooleanVar(value=False)
+            val = tk.StringVar()
+            tk.Checkbutton(form, variable=on).grid(row=r, column=0)
+            tk.Label(form, text=label, anchor="w", width=26).grid(row=r, column=1, sticky="w", pady=3)
+            if kind == "combo":
+                w = ttk.Combobox(form, textvariable=val, values=list(values), state="readonly", width=22)
+            else:
+                w = tk.Entry(form, textvariable=val, width=26)
+            w.grid(row=r, column=2, sticky="w", padx=6)
+            w.bind("<FocusIn>", lambda _e, v=on: v.set(True))
+            widgets[key] = (on, val)
+        reason_var = tk.StringVar()
+        if reason_label:
+            tk.Label(win, text=reason_label, anchor="w").pack(fill=tk.X, padx=10, pady=(8, 0))
+            tk.Entry(win, textvariable=reason_var, width=50).pack(anchor="w", padx=10)
+
+        def apply() -> None:
+            fields = {k: val.get().strip() for k, (on, val) in widgets.items() if on.get()}
+            if not fields:
+                messagebox.showinfo("Nothing ticked", "Tick at least one field to change.", parent=win)
+                return
+            try:
+                msg = on_apply(fields, reason_var.get())
+            except (StockError, InventoryGuardError, ValueError) as exc:
+                messagebox.showwarning("Not saved — nothing was changed", str(exc), parent=win)
+                return
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror("Error — nothing saved", str(exc), parent=win)
+                return
+            messagebox.showinfo(
+                "Saved",
+                msg + "\n\nShop summary is now out of date until you click "
+                "'Update shop snapshot'.",
+                parent=win,
+            )
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(fill=tk.X, padx=10, pady=12, side=tk.BOTTOM)
+        tk.Button(btns, text="Apply to all selected", command=apply).pack(side=tk.RIGHT)
+        tk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.LEFT)
+        return win
+
+    def _dialog_bulk_edit_medicines(self, ids: list[int], names: list[str], on_done=None) -> None:
+        shown = ", ".join(names[:4]) + (f" … (+{len(names) - 4} more)" if len(names) > 4 else "")
+        specs = [
+            ("form_type", "Form (tablet, syrup…)", "combo", FORM_TYPES),
+            ("qty_unit", "Counted in (unit)", "combo", QTY_UNITS),
+            ("manufacturer_name", "Manufacturer", "entry", None),
+            ("pack_size_label", "Pack size", "entry", None),
+            ("unit_mrp", "MRP (₹, blank = clear)", "entry", None),
+        ]
+
+        def apply(fields: dict, _reason: str) -> str:
+            if "unit_mrp" in fields and fields["unit_mrp"]:
+                try:
+                    float(fields["unit_mrp"])
+                except ValueError as exc:
+                    raise ValueError("MRP must be a number.") from exc
+            out = bulk_update_medicines(ids, **fields)
+            if on_done:
+                on_done()
+            return (
+                f"Updated {len(out['updated'])} of {len(ids)} medicines "
+                f"({len(out['unchanged'])} already had these values). "
+                "Each change is in the audit trail (UPDATE_MEDICINE)."
+            )
+
+        self._bulk_form(
+            f"Edit {len(ids)} medicines together",
+            f"Selected: {shown}\nTick the fields to change; the same value is applied to every "
+            "selected medicine. Name cannot be changed in bulk. If any medicine breaks a rule "
+            "(e.g. unit change while it has stock), nothing is saved.",
+            specs,
+            apply,
+        )
+
+    def _dialog_edit_batch(self, batch_id: int, on_done=None) -> None:
+        try:
+            b = get_batch_details(batch_id)
+        except (StockError, InventoryGuardError) as exc:
+            messagebox.showwarning("Cannot edit", str(exc))
+            return
+        win = tk.Toplevel(self)
+        win.title(f"Edit batch {b['batch_no']}")
+        win.geometry("540x380")
+        win.transient(self)
+        win.grab_set()
+        tk.Label(
+            win,
+            text=(
+                f"{b['medicine_name']} — batch ID {b['batch_id']}\n"
+                "Changing the quantity needs a reason and is recorded in the stock ledger "
+                "(ADJUST). Changing expiry affects warnings and which batch is sold first."
+            ),
+            justify=tk.LEFT,
+            anchor="w",
+            wraplength=500,
+            fg="#555555",
+        ).pack(fill=tk.X, padx=10, pady=(10, 6))
+        form = tk.Frame(win)
+        form.pack(fill=tk.X, padx=10)
+
+        def fmt(v):
+            return "" if v is None else str(v)[:10]
+
+        qty0 = float(b["qty_on_hand"])
+        v = {
+            "batch_no": tk.StringVar(value=b["batch_no"]),
+            "mfg_date": tk.StringVar(value=fmt(b["mfg_date"])),
+            "expiry_date": tk.StringVar(value=fmt(b["expiry_date"])),
+            "qty_on_hand": tk.StringVar(value=f"{qty0:g}"),
+            "unit_cost": tk.StringVar(
+                value="" if b["unit_cost"] is None else f"{float(b['unit_cost']):.2f}"
+            ),
+            "reason": tk.StringVar(),
+        }
+        for r, (label, key) in enumerate(
+            (
+                ("Batch no.", "batch_no"),
+                ("Made on (YYYY-MM-DD)", "mfg_date"),
+                ("Expiry (YYYY-MM-DD)", "expiry_date"),
+                (f"Quantity ({b.get('qty_unit') or 'units'})", "qty_on_hand"),
+                ("Cost per unit (blank = clear)", "unit_cost"),
+                ("Reason (needed if quantity changes)", "reason"),
+            )
+        ):
+            tk.Label(form, text=label, anchor="w", width=32).grid(row=r, column=0, sticky="w", pady=3)
+            tk.Entry(form, textvariable=v[key], width=26).grid(row=r, column=1, sticky="w", padx=6)
+
+        def save() -> None:
+            fields = {
+                "batch_no": v["batch_no"].get(),
+                "mfg_date": v["mfg_date"].get().strip() or None,
+                "expiry_date": v["expiry_date"].get().strip(),
+                "unit_cost": v["unit_cost"].get().strip() or None,
+            }
+            if v["qty_on_hand"].get().strip() != f"{qty0:g}":
+                fields["qty_on_hand"] = v["qty_on_hand"].get().strip()
+
+            def msg(o) -> str:
+                if not o["changes"]:
+                    return "Nothing was changed."
+                names = {"batch_no": "Batch no.", "mfg_date": "Made on",
+                         "expiry_date": "Expiry", "qty_on_hand": "Quantity",
+                         "unit_cost": "Cost"}
+                return "Changes saved (audit: UPDATE_LOT):\n" + "\n".join(
+                    f"{names.get(k, k)}: {c['old'] if c['old'] not in (None, '') else '—'} → "
+                    f"{c['new'] if c['new'] not in (None, '') else '—'}"
+                    for k, c in o["changes"].items()
+                )
+
+            if self._run_stock_op(
+                lambda: update_batch(batch_id, reason=v["reason"].get(), **fields),
+                on_done, msg, parent=win,
+            ):
+                win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(fill=tk.X, padx=10, pady=12, side=tk.BOTTOM)
+        tk.Button(btns, text="Save changes", command=save).pack(side=tk.RIGHT)
+        tk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.LEFT)
+
+    def _dialog_bulk_edit_batches(self, ids: list[int], nos: list[str], on_done=None) -> None:
+        shown = ", ".join(nos[:6]) + (f" … (+{len(nos) - 6} more)" if len(nos) > 6 else "")
+        specs = [
+            ("mfg_date", "Made on (YYYY-MM-DD)", "entry", None),
+            ("expiry_date", "Expiry (YYYY-MM-DD)", "entry", None),
+            ("unit_cost", "Cost per unit (blank = clear)", "entry", None),
+            ("qty_on_hand", "Quantity (same for each)", "entry", None),
+        ]
+
+        def apply(fields: dict, reason: str) -> str:
+            if "mfg_date" in fields and not fields["mfg_date"]:
+                fields["mfg_date"] = None
+            if "unit_cost" in fields and not fields["unit_cost"]:
+                fields["unit_cost"] = None
+            out = bulk_update_batches(ids, reason=reason, **fields)
+            if on_done:
+                on_done()
+            return (
+                f"Updated {len(out['updated'])} of {len(ids)} batches "
+                f"({len(out['unchanged'])} already had these values). "
+                "Each change is in the audit trail (UPDATE_LOT)."
+            )
+
+        self._bulk_form(
+            f"Edit {len(ids)} batches together",
+            f"Selected batches: {shown}\nTick the fields to change; the same value is applied "
+            "to every selected batch. Batch numbers cannot be changed in bulk. If any batch "
+            "breaks a rule (e.g. expiry before its made-on date), nothing is saved.",
+            specs,
+            apply,
+            reason_label="Reason (needed if quantity is ticked):",
+        )
 
     def _dialog_edit_medicine(self, medicine_id: int, on_done=None) -> None:
         try:

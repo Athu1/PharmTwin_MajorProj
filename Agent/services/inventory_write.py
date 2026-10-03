@@ -460,122 +460,150 @@ def get_medicine_details(medicine_id: int) -> dict[str, Any]:
 _KEEP: Any = object()  # update_medicine: argument not given -> keep current value
 
 
-def update_medicine(
+def _apply_medicine_update(
+    cur,
     medicine_id: int,
     *,
-    name: str,
-    form_type: str,
-    qty_unit: str,
+    name: Any = _KEEP,
+    form_type: Any = _KEEP,
+    qty_unit: Any = _KEEP,
     manufacturer_name: Any = _KEEP,
     pack_size_label: Any = _KEEP,
     unit_mrp: Any = _KEEP,
 ) -> dict[str, Any]:
-    """Edit a working-inventory medicine's details. Reference catalog rows are refused.
+    """Validate + apply one medicine edit inside the caller's transaction."""
+    cur.execute(
+        "SELECT medicine_id FROM medicines WHERE medicine_id=%s FOR UPDATE", (int(medicine_id),)
+    )
+    med = assert_editable(_get_medicine(cur, medicine_id))
+    mid = int(medicine_id)
+    label = med.get("name") or f"#{mid}"
+    cur.execute("SELECT is_active FROM medicines WHERE medicine_id=%s", (mid,))
+    if not cur.fetchone()["is_active"]:
+        raise InventoryGuardError(f"{label}: removed from stock (inactive), cannot edit.")
+    cur.execute(
+        "SELECT name FROM manufacturers WHERE manufacturer_id=%s", (med.get("manufacturer_id"),)
+    )
+    m = cur.fetchone()
+    old_mfr = m["name"] if m else ""
+    before = {
+        "name": med.get("name"),
+        "form_type": med.get("form_type"),
+        "qty_unit": med.get("qty_unit"),
+        "manufacturer": old_mfr,
+        "pack_size_label": med.get("pack_size_label"),
+        "unit_mrp": float(med["unit_mrp"]) if med.get("unit_mrp") is not None else None,
+    }
+    after = dict(before)
+    if name is not _KEEP:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Medicine name is required.")
+        after["name"] = name[:512]
+    if form_type is not _KEEP:
+        form_type = (form_type or "UNKNOWN").upper()
+        if form_type not in FORM_TYPES:
+            raise ValueError(f"Invalid form_type: {form_type}")
+        after["form_type"] = form_type
+    if qty_unit is not _KEEP:
+        qty_unit = (qty_unit or "UNITS").upper()
+        if qty_unit not in QTY_UNITS:
+            raise ValueError(f"Invalid qty_unit: {qty_unit}")
+        after["qty_unit"] = qty_unit
+    if manufacturer_name is not _KEEP:
+        after["manufacturer"] = (manufacturer_name or "").strip()
+    if pack_size_label is not _KEEP:
+        after["pack_size_label"] = (pack_size_label or "").strip()[:128] or None
+    if unit_mrp is not _KEEP:
+        if unit_mrp is not None and unit_mrp != "":
+            unit_mrp = float(unit_mrp)
+            if unit_mrp < 0:
+                raise ValueError("MRP cannot be negative.")
+            after["unit_mrp"] = unit_mrp
+        else:
+            after["unit_mrp"] = None
 
-    Manufacturer / pack size / MRP left out are kept; pass None or "" to clear them.
+    changes = {k: {"old": before[k], "new": after[k]} for k in after if before[k] != after[k]}
+    if not changes:
+        return {"medicine_id": mid, "name": label, "changes": {}}
 
+    if "qty_unit" in changes:
+        cur.execute(
+            "SELECT COALESCE(SUM(qty_on_hand),0) AS q FROM medicine_batches WHERE medicine_id=%s",
+            (mid,),
+        )
+        stock = float(cur.fetchone()["q"])
+        if stock > 0:
+            raise InventoryGuardError(
+                f"{label}: cannot change the counting unit from {before['qty_unit']} to "
+                f"{after['qty_unit']} while {stock:.0f} units are in stock — the quantities "
+                "would be misread. Sell, write off or correct the stock to 0 first."
+            )
+    mfr_id = (
+        med.get("manufacturer_id")
+        if after["manufacturer"] == old_mfr
+        else _ensure_mfr(cur, after["manufacturer"])
+    )
+    cur.execute(
+        """
+        UPDATE medicines
+        SET name=%s, form_type=%s, qty_unit=%s, manufacturer_id=%s,
+            pack_size_label=%s, unit_mrp=%s
+        WHERE medicine_id=%s AND source_system <> %s
+        """,
+        (after["name"], after["form_type"], after["qty_unit"], mfr_id,
+         after["pack_size_label"], after["unit_mrp"], mid, IMMUTABLE_SOURCE),
+    )
+    if "qty_unit" in changes:
+        cur.execute(
+            "UPDATE medicine_batches SET qty_unit=%s WHERE medicine_id=%s", (after["qty_unit"], mid)
+        )
+    _audit(cur, "UPDATE_MEDICINE", mid, None,
+           {"changes": changes, "reference_catalog_untouched": True})
+    return {"medicine_id": mid, "name": after["name"], "changes": changes}
+
+
+def update_medicine(medicine_id: int, **fields: Any) -> dict[str, Any]:
+    """Edit one working-inventory medicine. Reference catalog rows are refused.
+
+    Fields: name, form_type, qty_unit, manufacturer_name, pack_size_label, unit_mrp.
+    Fields left out are kept; pass None or "" to clear manufacturer / pack / MRP.
     The counting unit cannot change while stock exists (100 TABLETS would silently
     become 100 ML). Every change is written to inventory_audit with before/after.
     """
-    name = (name or "").strip()
-    if not name:
-        raise ValueError("Medicine name is required.")
-    form_type = (form_type or "UNKNOWN").upper()
-    qty_unit = (qty_unit or "UNITS").upper()
-    if form_type not in FORM_TYPES:
-        raise ValueError(f"Invalid form_type: {form_type}")
-    if qty_unit not in QTY_UNITS:
-        raise ValueError(f"Invalid qty_unit: {qty_unit}")
-    if unit_mrp is not _KEEP and unit_mrp is not None:
-        unit_mrp = float(unit_mrp)
-        if unit_mrp < 0:
-            raise ValueError("MRP cannot be negative.")
-
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT medicine_id FROM medicines WHERE medicine_id=%s FOR UPDATE",
-                (int(medicine_id),),
-            )
-            med = assert_editable(_get_medicine(cur, medicine_id))
-            mid = int(medicine_id)
-            cur.execute("SELECT is_active FROM medicines WHERE medicine_id=%s", (mid,))
-            if not cur.fetchone()["is_active"]:
-                raise InventoryGuardError("This medicine was removed from stock (inactive).")
-            cur.execute(
-                "SELECT name FROM manufacturers WHERE manufacturer_id=%s",
-                (med.get("manufacturer_id"),),
-            )
-            m = cur.fetchone()
-            old_mfr = m["name"] if m else ""
-            new_mfr = old_mfr if manufacturer_name is _KEEP else (manufacturer_name or "").strip()
-            if pack_size_label is _KEEP:
-                pack = med.get("pack_size_label")
-            else:
-                pack = (pack_size_label or "").strip()[:128] or None
-            if unit_mrp is _KEEP:
-                unit_mrp = float(med["unit_mrp"]) if med.get("unit_mrp") is not None else None
+            out = _apply_medicine_update(cur, medicine_id, **fields)
+        conn.commit()
+        return out
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
-            before = {
-                "name": med.get("name"),
-                "form_type": med.get("form_type"),
-                "qty_unit": med.get("qty_unit"),
-                "manufacturer": old_mfr,
-                "pack_size_label": med.get("pack_size_label"),
-                "unit_mrp": float(med["unit_mrp"]) if med.get("unit_mrp") is not None else None,
-            }
-            after = {
-                "name": name[:512],
-                "form_type": form_type,
-                "qty_unit": qty_unit,
-                "manufacturer": new_mfr,
-                "pack_size_label": pack,
-                "unit_mrp": unit_mrp,
-            }
-            changes = {k: {"old": before[k], "new": after[k]} for k in after if before[k] != after[k]}
-            if not changes:
-                return {"medicine_id": mid, "changes": {}}
 
-            if "qty_unit" in changes:
-                cur.execute(
-                    "SELECT COALESCE(SUM(qty_on_hand),0) AS q FROM medicine_batches "
-                    "WHERE medicine_id=%s",
-                    (mid,),
-                )
-                stock = float(cur.fetchone()["q"])
-                if stock > 0:
-                    raise InventoryGuardError(
-                        f"Cannot change the counting unit from {before['qty_unit']} to "
-                        f"{qty_unit} while {stock:.0f} units are in stock — the quantities "
-                        "would be misread. Sell, write off or correct the stock to 0 first."
-                    )
+def bulk_update_medicines(medicine_ids: list[int], **fields: Any) -> dict[str, Any]:
+    """Apply the same field changes to several medicines — all or nothing.
 
-            mfr_id = (
-                med.get("manufacturer_id") if new_mfr == old_mfr else _ensure_mfr(cur, new_mfr)
-            )
-            cur.execute(
-                """
-                UPDATE medicines
-                SET name=%s, form_type=%s, qty_unit=%s, manufacturer_id=%s,
-                    pack_size_label=%s, unit_mrp=%s
-                WHERE medicine_id=%s AND source_system <> %s
-                """,
-                (after["name"], form_type, qty_unit, mfr_id, pack, unit_mrp, mid, IMMUTABLE_SOURCE),
-            )
-            if "qty_unit" in changes:
-                cur.execute(
-                    "UPDATE medicine_batches SET qty_unit=%s WHERE medicine_id=%s", (qty_unit, mid)
-                )
-            _audit(
-                cur,
-                "UPDATE_MEDICINE",
-                mid,
-                None,
-                {"changes": changes, "reference_catalog_untouched": True},
-            )
-            conn.commit()
-            return {"medicine_id": mid, "changes": changes}
+    Name is not allowed in bulk (every medicine would get the same name).
+    """
+    if "name" in fields:
+        raise ValueError("Name cannot be changed for several medicines at once.")
+    if not medicine_ids:
+        raise ValueError("Select at least one medicine.")
+    if not fields:
+        raise ValueError("Choose at least one field to change.")
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            results = [_apply_medicine_update(cur, int(mid), **fields) for mid in medicine_ids]
+        conn.commit()
+        return {
+            "updated": [r for r in results if r["changes"]],
+            "unchanged": [r for r in results if not r["changes"]],
+        }
     except Exception:
         conn.rollback()
         raise

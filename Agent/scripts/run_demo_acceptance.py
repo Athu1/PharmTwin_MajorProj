@@ -419,10 +419,13 @@ def _check_stock_ops(report: Report) -> None:
     from services.stock_ops import (
         StockError,
         adjust_batch_qty,
+        bulk_update_batches,
         check_stock_consistency,
+        get_batch_details,
         post_sale,
         receive_purchase,
         suggest_fefo,
+        update_batch,
     )
 
     today = date.today()
@@ -537,6 +540,31 @@ def _check_stock_ops(report: Report) -> None:
             "Invalid stock actions refused (no reason / expired receipt / strict oversell)",
             all(blocked),
             f"refused={blocked}",
+        )
+
+        # G06: edit expiry -> FEFO order follows; bulk edit is all-or-nothing
+        # ACC-NEW (expiry +300d) has stock; a new far-dated batch is edited to expire sooner
+        g6 = receive_purchase(mid, 4, expiry_date=str(today + timedelta(600)), batch_no="ACC-G6")
+        update_batch(g6["batch_id"], expiry_date=str(today + timedelta(20)))
+        new_first = suggest_fefo(mid, 1)["allocations"]
+        cost_before = get_batch_details(early["batch_id"])["unit_cost"]
+        bulk_refused = False
+        try:
+            bulk_update_batches(
+                [early["batch_id"], g6["batch_id"]],
+                unit_cost=9.99,
+                mfg_date=str(today + timedelta(days=3)),  # future mfg -> must fail
+            )
+        except StockError:
+            bulk_refused = True
+        cost_after = get_batch_details(early["batch_id"])["unit_cost"]
+        report.add(
+            "G06",
+            "Batch edit (expiry) changes which batch sells first; failed bulk edit saves nothing",
+            bool(new_first) and new_first[0]["batch_id"] == g6["batch_id"]
+            and bulk_refused and cost_before == cost_after,
+            f"first batch now={new_first[0]['batch_no'] if new_first else None}, "
+            f"bulk_refused={bulk_refused}, cost unchanged={cost_before == cost_after}",
         )
 
         out = remove_medicine(mid)

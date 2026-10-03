@@ -412,6 +412,178 @@ def write_off_expired(batch_id: int | None = None) -> dict[str, Any]:
         conn.close()
 
 
+_KEEP: Any = object()  # batch edits: argument not given -> keep current value
+
+
+def get_batch_details(batch_id: int) -> dict[str, Any]:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.batch_id, b.medicine_id, b.batch_no, b.mfg_date, b.expiry_date,
+                       b.qty_on_hand, b.unit_cost, b.qty_unit, m.name AS medicine_name
+                FROM medicine_batches b JOIN medicines m ON m.medicine_id = b.medicine_id
+                WHERE b.batch_id=%s
+                """,
+                (int(batch_id),),
+            )
+            b = cur.fetchone()
+            if not b:
+                raise StockError(f"Batch {batch_id} not found.")
+            assert_editable(_get_medicine(cur, int(b["medicine_id"])))
+            return dict(b)
+    finally:
+        conn.close()
+
+
+def _apply_batch_update(
+    cur,
+    batch_id: int,
+    *,
+    batch_no: Any = _KEEP,
+    mfg_date: Any = _KEEP,
+    expiry_date: Any = _KEEP,
+    unit_cost: Any = _KEEP,
+    qty_on_hand: Any = _KEEP,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Validate + apply one batch edit inside the caller's transaction."""
+    b = _lock_batch(cur, batch_id)
+    mid = int(b["medicine_id"])
+    _active_medicine(cur, mid)
+    label = f"Batch {b['batch_no']}"
+    before = {
+        "batch_no": b["batch_no"],
+        "mfg_date": None,  # filled below (_lock_batch does not select it)
+        "expiry_date": _as_date(b["expiry_date"]),
+        "unit_cost": float(b["unit_cost"]) if b.get("unit_cost") is not None else None,
+        "qty_on_hand": float(b["qty_on_hand"]),
+    }
+    cur.execute("SELECT mfg_date FROM medicine_batches WHERE batch_id=%s", (int(batch_id),))
+    before["mfg_date"] = _as_date(cur.fetchone()["mfg_date"])
+    after = dict(before)
+    try:
+        if batch_no is not _KEEP:
+            bno = (batch_no or "").strip()[:64]
+            if not bno:
+                raise StockError(f"{label}: batch number cannot be empty.")
+            after["batch_no"] = bno
+        if mfg_date is not _KEEP:
+            after["mfg_date"] = _as_date(mfg_date)
+        if expiry_date is not _KEEP:
+            after["expiry_date"] = _as_date(expiry_date)
+    except ValueError as exc:
+        raise StockError(f"{label}: dates must look like 2027-03-31.") from exc
+    if unit_cost is not _KEEP:
+        if unit_cost is None or unit_cost == "":
+            after["unit_cost"] = None
+        else:
+            after["unit_cost"] = float(unit_cost)
+            if after["unit_cost"] < 0:
+                raise StockError(f"{label}: cost cannot be negative.")
+    if qty_on_hand is not _KEEP:
+        try:
+            after["qty_on_hand"] = float(qty_on_hand)
+        except (TypeError, ValueError) as exc:
+            raise StockError(f"{label}: quantity must be a number.") from exc
+        if after["qty_on_hand"] < 0:
+            raise StockError(f"{label}: quantity cannot be negative.")
+
+    if after["expiry_date"] is None:
+        raise StockError(f"{label}: expiry date is required.")
+    if after["mfg_date"] and after["mfg_date"] > date.today():
+        raise StockError(f"{label}: manufacturing date cannot be in the future.")
+    if after["mfg_date"] and after["expiry_date"] <= after["mfg_date"]:
+        raise StockError(f"{label}: expiry date must be after the manufacturing date.")
+
+    changes = {
+        k: {"old": str(before[k]) if isinstance(before[k], date) else before[k],
+            "new": str(after[k]) if isinstance(after[k], date) else after[k]}
+        for k in after if before[k] != after[k]
+    }
+    if not changes:
+        return {"batch_id": int(batch_id), "batch_no": before["batch_no"], "changes": {}}
+    reason = (reason or "").strip()
+    if "qty_on_hand" in changes and not reason:
+        raise StockError(
+            f"{label}: give a reason for the quantity change (e.g. 'shelf count', 'damaged')."
+        )
+    if "batch_no" in changes:
+        cur.execute(
+            "SELECT 1 FROM medicine_batches WHERE medicine_id=%s AND batch_no=%s AND batch_id<>%s",
+            (mid, after["batch_no"], int(batch_id)),
+        )
+        if cur.fetchone():
+            raise StockError(f"{label}: batch number {after['batch_no']} already exists "
+                             "for this medicine.")
+
+    cur.execute(
+        "UPDATE medicine_batches SET batch_no=%s, mfg_date=%s, expiry_date=%s, unit_cost=%s "
+        "WHERE batch_id=%s",
+        (after["batch_no"], after["mfg_date"], after["expiry_date"], after["unit_cost"],
+         int(batch_id)),
+    )
+    if "qty_on_hand" in changes:
+        delta = after["qty_on_hand"] - before["qty_on_hand"]
+        _set_qty(cur, int(batch_id), delta)
+        _move(cur, mid, int(batch_id), "ADJUST", delta, None, "medicine_batches",
+              int(batch_id), datetime.now())
+    _audit(cur, "UPDATE_LOT", mid, int(batch_id), {"changes": changes, "reason": reason})
+    return {"batch_id": int(batch_id), "medicine_id": mid, "batch_no": after["batch_no"],
+            "changes": changes}
+
+
+def update_batch(batch_id: int, *, reason: str = "", **fields: Any) -> dict[str, Any]:
+    """Edit one batch: batch_no, mfg_date, expiry_date, unit_cost, qty_on_hand.
+
+    Fields left out are kept. A quantity change needs a reason and is written to the
+    stock ledger as an ADJUST movement. Order suggestions are refreshed.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            out = _apply_batch_update(cur, batch_id, reason=reason, **fields)
+            if out["changes"]:
+                refresh_recommendations_for(cur, [out["medicine_id"]])
+        conn.commit()
+        return out
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def bulk_update_batches(batch_ids: list[int], *, reason: str = "", **fields: Any) -> dict[str, Any]:
+    """Apply the same changes to several batches — all or nothing.
+
+    Batch number is not allowed in bulk (numbers must be unique per medicine).
+    """
+    if "batch_no" in fields:
+        raise StockError("Batch number cannot be changed for several batches at once.")
+    if not batch_ids:
+        raise StockError("Select at least one batch.")
+    if not fields:
+        raise StockError("Choose at least one field to change.")
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            results = [_apply_batch_update(cur, int(b), reason=reason, **fields) for b in batch_ids]
+            meds = sorted({r["medicine_id"] for r in results if r["changes"]})
+            refresh_recommendations_for(cur, meds)
+        conn.commit()
+        return {
+            "updated": [r for r in results if r["changes"]],
+            "unchanged": [r for r in results if not r["changes"]],
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def check_stock_consistency() -> dict[str, Any]:
     """No batch below zero and no sale line with a negative qty / unmet qty."""
     conn = get_connection()
@@ -437,4 +609,7 @@ __all__ = [
     "adjust_batch_qty",
     "write_off_expired",
     "check_stock_consistency",
+    "get_batch_details",
+    "update_batch",
+    "bulk_update_batches",
 ]
