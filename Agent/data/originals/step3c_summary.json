@@ -1,0 +1,67 @@
+{
+  "method": "direct multi-horizon quantile regression (one model per target)",
+  "why_direct": "A recursive forecaster feeds its own predictions back as inputs, so its errors compound with each step. Direct models never see their own output.",
+  "horizons": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "cover_weeks": 2,
+  "lead_time_weeks": 1,
+  "review_period_weeks": 1,
+  "quantiles": [
+    0.5,
+    0.9,
+    0.95
+  ],
+  "metrics": [
+    {
+      "target": "h1",
+      "description": "demand 1 week(s) ahead",
+      "n_test_rows": 81000,
+      "global_wmape": 0.7097,
+      "mean_mase": 0.7738,
+      "global_mae": 1.6719,
+      "q95_coverage": 0.9478
+    },
+    {
+      "target": "h2",
+      "description": "demand 2 week(s) ahead",
+      "n_test_rows": 78000,
+      "global_wmape": 0.7205,
+      "mean_mase": 0.7788,
+      "global_mae": 1.7029,
+      "q95_coverage": 0.9482
+    },
+    {
+      "target": "h3",
+      "description": "demand 3 week(s) ahead",
+      "n_test_rows": 75000,
+      "global_wmape": 0.7146,
+      "mean_mase": 0.773,
+      "global_mae": 1.6801,
+      "q95_coverage": 0.945
+    },
+    {
+      "target": "h4",
+      "description": "demand 4 week(s) ahead",
+      "n_test_rows": 72000,
+      "global_wmape": 0.7183,
+      "mean_mase": 0.7731,
+      "global_mae": 1.679,
+      "q95_coverage": 0.9471
+    },
+    {
+      "target": "cover",
+      "description": "total demand over the next 2 weeks (L+R)",
+      "n_test_rows": 78000,
+      "global_wmape": 0.5783,
+      "mean_mase": NaN,
+      "global_mae": 2.7601,
+      "q95_coverage": 0.9466
+    }
+  ],
+  "q95_coverage_note": "Share of test rows where actual <= q95. It should land near 0.95; well above means the upper bound is too cautious, well below means it is unsafe.",
+  "data_note": "DEV SYNTHETIC data \u2014 not Bhagyashree Medical sales."
+}

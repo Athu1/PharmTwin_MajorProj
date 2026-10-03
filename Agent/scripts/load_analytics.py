@@ -68,7 +68,32 @@ def _stock_by_sku(cur) -> dict[int, float]:
     return {int(r[0]): float(r[1]) for r in cur.fetchall()}
 
 
-def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
+def _cover_window_params() -> "pd.DataFrame | None":
+    """Reorder parameters from the Step 3c cover-window model, if it has been run.
+
+    More correct than the Step 4 defaults: quantiles do not add, so (mean weekly q50)
+    x (L+R) is not the median of the L+R week total. The cover model estimates that
+    total directly. See docs/model_card.md.
+    """
+    cover_path = DATA / "step3c_cover_forecasts.csv"
+    ss_path = DATA / "step4_safety_stock_params.csv"
+    if not cover_path.exists() or not ss_path.exists():
+        return None
+    from src.safety_stock import sku_params_from_cover_forecasts
+
+    cover = pd.read_csv(cover_path, parse_dates=["week_start"])
+    params = sku_params_from_cover_forecasts(cover)
+    # Carry over the descriptive columns the recommendation text needs
+    base = pd.read_csv(ss_path)
+    meta_cols = [
+        c
+        for c in ("sku_id", "name", "price_inr", "demand_cohort", "Therapeutic Class")
+        if c in base.columns
+    ]
+    return params.merge(base[meta_cols], on="sku_id", how="left")
+
+
+def load_forecasts_and_recommendations(cur, conn, use_cover_params: bool = False) -> dict[str, int]:
     """Insert Step-3 weekly forecasts and Step-4 reorder recommendations."""
     sku_to_med = _sku_map(cur)
     stock = _stock_by_sku(cur)
@@ -170,12 +195,17 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
             )
 
     ss_path = DATA / "step4_safety_stock_params.csv"
+    cover_params = _cover_window_params() if use_cover_params else None
+    if cover_params is not None:
+        print(f"Using Step 3c cover-window reorder parameters ({len(cover_params):,} SKUs)")
+    elif use_cover_params:
+        print("  --use-cover-params asked for, but step3c_cover_forecasts.csv is missing")
     if not ss_path.exists():
         print(f"  skip recommendations — missing {ss_path.name}")
     else:
         print("Clearing recommendations table...")
         cur.execute("DELETE FROM recommendations")
-        ss = pd.read_csv(ss_path)
+        ss = cover_params if cover_params is not None else pd.read_csv(ss_path)
         from services.recommendations import build_explanation, decide_action
 
         rows = []
@@ -204,7 +234,10 @@ def load_forecasts_and_recommendations(cur, conn) -> dict[str, int]:
                 "order_up_to": order_up,
                 "demand_cohort": str(getattr(r, "demand_cohort", "") or ""),
                 "formula": "SS = Z * sigma_LT * sqrt(L + R)",
-                "source": "step4_safety_stock_params",
+                "source": (
+                    "step3c_cover_window" if cover_params is not None
+                    else "step4_safety_stock_params"
+                ),
             }
             explanation = build_explanation(
                 action, name, current, rop, ss_qty, assumptions, mu, forecast_demand
@@ -252,6 +285,12 @@ def main() -> None:
     p.add_argument("--user", default=os.getenv("PHARMTWIN_DB_USER", "root"))
     p.add_argument("--password", default=None)
     p.add_argument("--database", default=os.getenv("PHARMTWIN_DB_NAME", "pharmtwinai"))
+    p.add_argument(
+        "--use-cover-params",
+        action="store_true",
+        help="Reorder points from the Step 3c cover-window model instead of the Step 4 "
+        "flat average (run scripts/run_step3c.py first)",
+    )
     args = p.parse_args()
 
     password = args.password if args.password is not None else os.getenv("PHARMTWIN_DB_PASSWORD", "")
@@ -272,7 +311,9 @@ def main() -> None:
     cur = conn.cursor()
     try:
         print("Loading analytics into MySQL...")
-        stats = load_forecasts_and_recommendations(cur, conn)
+        stats = load_forecasts_and_recommendations(
+            cur, conn, use_cover_params=args.use_cover_params
+        )
         print(
             f"Done. forecasts={stats['forecasts']:,} | "
             f"recommendations={stats['recommendations']:,} | "

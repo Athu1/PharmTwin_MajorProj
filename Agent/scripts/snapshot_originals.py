@@ -38,6 +38,10 @@ FREEZE = [
     "step6_classifier_models.csv",
     "step6_threshold_sweep.csv",
     "step6_summary.json",
+    "step3c_horizon_metrics.csv",
+    "step3c_summary.json",
+    "step4b_reorder_comparison.csv",
+    "step4b_reorder_comparison.json",
 ]
 
 

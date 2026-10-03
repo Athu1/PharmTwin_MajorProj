@@ -1,0 +1,6 @@
+target,description,n_test_rows,global_wmape,mean_mase,global_mae,q95_coverage
+h1,demand 1 week(s) ahead,81000,0.7097,0.7738,1.6719,0.9478
+h2,demand 2 week(s) ahead,78000,0.7205,0.7788,1.7029,0.9482
+h3,demand 3 week(s) ahead,75000,0.7146,0.773,1.6801,0.945
+h4,demand 4 week(s) ahead,72000,0.7183,0.7731,1.679,0.9471
+cover,total demand over the next 2 weeks (L+R),78000,0.5783,,2.7601,0.9466
